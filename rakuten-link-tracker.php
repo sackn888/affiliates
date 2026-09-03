@@ -28,6 +28,7 @@ register_activation_hook( __FILE__, array( \RLT\Installer::class, 'activate' ) )
 register_deactivation_hook(
 	__FILE__,
 	static function (): void {
+		\RLT\Cron::unschedule();
 		flush_rewrite_rules();
 	}
 );

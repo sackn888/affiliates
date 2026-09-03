@@ -49,6 +49,8 @@ final class Installer {
 		self::addCapabilities();
 		update_option( self::VERSION_OPTION, self::DB_VERSION );
 
+		Cron::schedule();
+
 		// The /go/{code} rule is registered on init; flush so it takes effect now.
 		flush_rewrite_rules();
 	}

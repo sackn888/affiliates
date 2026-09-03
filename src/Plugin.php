@@ -48,5 +48,6 @@ final class Plugin {
 		( new \RLT\Frontend\BeaconController() )->register();
 		( new \RLT\Api\StatsController() )->register();
 		( new \RLT\Api\ExportController() )->register();
+		( new Cron() )->register();
 	}
 }
