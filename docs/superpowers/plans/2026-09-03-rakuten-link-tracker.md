@@ -3414,6 +3414,46 @@ final class RequestContextTest extends WP_UnitTestCase {
 
 		$this->assertTrue( RequestContext::isBot() );
 	}
+
+	public function test_referer_is_truncated_without_breaking_a_multibyte_character(): void {
+		// esc_url_raw は \x80-\xff の生バイトをそのまま通すため、
+		// 生の UTF-8 を含むリファラがここまで届きうる。
+		$_SERVER['HTTP_REFERER'] = 'https://example.com/' . str_repeat( 'あ', 300 );
+
+		$referer = RequestContext::referer();
+
+		$this->assertLessThanOrEqual( 255, strlen( $referer ) );
+		$this->assertSame(
+			$referer,
+			mb_convert_encoding( $referer, 'UTF-8', 'UTF-8' ),
+			'Truncated referer is not valid UTF-8.'
+		);
+	}
+
+	public function test_a_truncated_referer_is_still_stored(): void {
+		$_SERVER['HTTP_REFERER'] = 'https://example.com/' . str_repeat( 'あ', 300 );
+		RequestContext::reset();
+
+		// 壊れたUTF-8だと INSERT ごと失敗し、クリック自体が記録されない。
+		$this->assertTrue( ( new \RLT\Data\EventRepository() )->recordClick( 1, 1 ) );
+	}
+
+	public function test_a_filter_returning_nothing_falls_back_to_remote_addr(): void {
+		add_filter( 'rlt_client_ip', static fn () => null );
+
+		$this->assertSame( '203.0.113.5', RequestContext::ip() );
+	}
+
+	public function test_a_filter_returning_a_non_string_falls_back_to_remote_addr(): void {
+		add_filter( 'rlt_client_ip', static fn () => array( 'nope' ) );
+
+		$this->assertSame( '203.0.113.5', RequestContext::ip() );
+	}
+
+	public function tear_down(): void {
+		RequestContext::reset();
+		parent::tear_down();
+	}
 }
 ```
 
@@ -3528,6 +3568,11 @@ final class EventRepositoryRecordTest extends WP_UnitTestCase {
 		$this->assertTrue( $this->events->hasRecentView( 42, RequestContext::visitorHash(), 1800 ) );
 		$this->assertFalse( $this->events->hasRecentView( 43, RequestContext::visitorHash(), 1800 ) );
 	}
+
+	public function tear_down(): void {
+		RequestContext::reset();
+		parent::tear_down();
+	}
 }
 ```
 
@@ -3585,7 +3630,14 @@ final class RequestContext {
 	public static function ip(): string {
 		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : '';
 
-		return (string) apply_filters( 'rlt_client_ip', $ip );
+		$filtered = apply_filters( 'rlt_client_ip', $ip );
+
+		// A misbehaving third-party filter (proxy detection gone wrong, e.g.
+		// returning null/false/an array) must not silently degrade
+		// deduplication: casting a non-string to '' would make the IP
+		// contribute nothing to the visitor hash, merging every visitor that
+		// shares a user-agent. Fall back to the real, unfiltered value instead.
+		return is_string( $filtered ) && '' !== $filtered ? $filtered : $ip;
 	}
 
 	public static function userAgent(): string {
@@ -3599,7 +3651,33 @@ final class RequestContext {
 			? esc_url_raw( (string) wp_unslash( $_SERVER['HTTP_REFERER'] ) )
 			: '';
 
-		return substr( $referer, 0, self::MAX_REFERER_LENGTH );
+		return self::truncateBytesSafely( $referer );
+	}
+
+	/**
+	 * Keep the referer inside the utf8mb4 VARCHAR(255) column without
+	 * splitting a multibyte character in half.
+	 *
+	 * esc_url_raw() passes raw \x80-\xff bytes through unescaped, so a
+	 * Referer header carrying raw UTF-8 can reach here as multibyte text.
+	 * substr() counts bytes, so a naive cut at 255 bytes can land mid
+	 * character and leave an invalid UTF-8 tail. Under MySQL strict mode an
+	 * invalid sequence fails the whole INSERT, which would silently drop the
+	 * click/view event rather than merely store a mangled referer. Same
+	 * technique as LinkExtractor::truncate(), kept in sync deliberately.
+	 */
+	private static function truncateBytesSafely( string $text ): string {
+		if ( strlen( $text ) <= self::MAX_REFERER_LENGTH ) {
+			return $text;
+		}
+
+		$cut = substr( $text, 0, self::MAX_REFERER_LENGTH );
+
+		return (string) preg_replace(
+			'/(?:[\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$/',
+			'',
+			$cut
+		);
 	}
 
 	public static function visitorHash(): string {
@@ -3733,7 +3811,7 @@ final class EventRepository {
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter 'RequestContextTest|EventRepositoryRecordTest'
 ```
 
-Expected: PASS — `OK (17 tests, ...)`
+Expected: PASS — `OK (21 tests, ...)`
 
 - [ ] **Step 6: コミット**
 

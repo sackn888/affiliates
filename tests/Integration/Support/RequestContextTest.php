@@ -57,4 +57,44 @@ final class RequestContextTest extends WP_UnitTestCase {
 
 		$this->assertTrue( RequestContext::isBot() );
 	}
+
+	public function test_referer_is_truncated_without_breaking_a_multibyte_character(): void {
+		// esc_url_raw は \x80-\xff の生バイトをそのまま通すため、
+		// 生の UTF-8 を含むリファラがここまで届きうる。
+		$_SERVER['HTTP_REFERER'] = 'https://example.com/' . str_repeat( 'あ', 300 );
+
+		$referer = RequestContext::referer();
+
+		$this->assertLessThanOrEqual( 255, strlen( $referer ) );
+		$this->assertSame(
+			$referer,
+			mb_convert_encoding( $referer, 'UTF-8', 'UTF-8' ),
+			'Truncated referer is not valid UTF-8.'
+		);
+	}
+
+	public function test_a_truncated_referer_is_still_stored(): void {
+		$_SERVER['HTTP_REFERER'] = 'https://example.com/' . str_repeat( 'あ', 300 );
+		RequestContext::reset();
+
+		// 壊れたUTF-8だと INSERT ごと失敗し、クリック自体が記録されない。
+		$this->assertTrue( ( new \RLT\Data\EventRepository() )->recordClick( 1, 1 ) );
+	}
+
+	public function test_a_filter_returning_nothing_falls_back_to_remote_addr(): void {
+		add_filter( 'rlt_client_ip', static fn () => null );
+
+		$this->assertSame( '203.0.113.5', RequestContext::ip() );
+	}
+
+	public function test_a_filter_returning_a_non_string_falls_back_to_remote_addr(): void {
+		add_filter( 'rlt_client_ip', static fn () => array( 'nope' ) );
+
+		$this->assertSame( '203.0.113.5', RequestContext::ip() );
+	}
+
+	public function tear_down(): void {
+		RequestContext::reset();
+		parent::tear_down();
+	}
 }

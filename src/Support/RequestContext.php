@@ -39,7 +39,14 @@ final class RequestContext {
 	public static function ip(): string {
 		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : '';
 
-		return (string) apply_filters( 'rlt_client_ip', $ip );
+		$filtered = apply_filters( 'rlt_client_ip', $ip );
+
+		// A misbehaving third-party filter (proxy detection gone wrong, e.g.
+		// returning null/false/an array) must not silently degrade
+		// deduplication: casting a non-string to '' would make the IP
+		// contribute nothing to the visitor hash, merging every visitor that
+		// shares a user-agent. Fall back to the real, unfiltered value instead.
+		return is_string( $filtered ) && '' !== $filtered ? $filtered : $ip;
 	}
 
 	public static function userAgent(): string {
@@ -53,7 +60,33 @@ final class RequestContext {
 			? esc_url_raw( (string) wp_unslash( $_SERVER['HTTP_REFERER'] ) )
 			: '';
 
-		return substr( $referer, 0, self::MAX_REFERER_LENGTH );
+		return self::truncateBytesSafely( $referer );
+	}
+
+	/**
+	 * Keep the referer inside the utf8mb4 VARCHAR(255) column without
+	 * splitting a multibyte character in half.
+	 *
+	 * esc_url_raw() passes raw \x80-\xff bytes through unescaped, so a
+	 * Referer header carrying raw UTF-8 can reach here as multibyte text.
+	 * substr() counts bytes, so a naive cut at 255 bytes can land mid
+	 * character and leave an invalid UTF-8 tail. Under MySQL strict mode an
+	 * invalid sequence fails the whole INSERT, which would silently drop the
+	 * click/view event rather than merely store a mangled referer. Same
+	 * technique as LinkExtractor::truncate(), kept in sync deliberately.
+	 */
+	private static function truncateBytesSafely( string $text ): string {
+		if ( strlen( $text ) <= self::MAX_REFERER_LENGTH ) {
+			return $text;
+		}
+
+		$cut = substr( $text, 0, self::MAX_REFERER_LENGTH );
+
+		return (string) preg_replace(
+			'/(?:[\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$/',
+			'',
+			$cut
+		);
 	}
 
 	public static function visitorHash(): string {

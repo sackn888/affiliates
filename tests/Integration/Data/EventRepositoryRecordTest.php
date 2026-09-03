@@ -106,4 +106,9 @@ final class EventRepositoryRecordTest extends WP_UnitTestCase {
 		$this->assertTrue( $this->events->hasRecentView( 42, RequestContext::visitorHash(), 1800 ) );
 		$this->assertFalse( $this->events->hasRecentView( 43, RequestContext::visitorHash(), 1800 ) );
 	}
+
+	public function tear_down(): void {
+		RequestContext::reset();
+		parent::tear_down();
+	}
 }
