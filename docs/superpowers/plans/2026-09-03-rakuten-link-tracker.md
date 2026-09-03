@@ -2304,6 +2304,18 @@ use WP_UnitTestCase;
 
 final class InstallerTest extends WP_UnitTestCase {
 
+	/**
+	 * Set by any test that calls Installer::createTables() / maybeUpgrade().
+	 *
+	 * dbDelta() issues real `ALTER TABLE` statements even when the schema
+	 * already matches (WordPress's temporary-table query filter only rewrites
+	 * `CREATE TABLE` / `DROP TABLE`, never `ALTER TABLE`), so every such call
+	 * causes a real, uncontrolled implicit commit partway through the test --
+	 * not just in the two tests that deliberately drop a table. See
+	 * tear_down() for how this is handled.
+	 */
+	private bool $realSchemaDdlRan = false;
+
 	public function test_tables_exist_after_activation(): void {
 		global $wpdb;
 
@@ -2427,6 +2439,7 @@ final class InstallerTest extends WP_UnitTestCase {
 		update_option( Installer::VERSION_OPTION, '0.0.1' );
 
 		Installer::maybeUpgrade();
+		$this->realSchemaDdlRan = true;
 
 		$this->assertSame( Installer::DB_VERSION, get_option( Installer::VERSION_OPTION ) );
 	}
@@ -2446,6 +2459,8 @@ final class InstallerTest extends WP_UnitTestCase {
 	public function test_maybe_upgrade_recreates_a_dropped_table(): void {
 		global $wpdb;
 
+		$this->allowRealDdl();
+
 		// バージョンは一致したまま、テーブルだけが失われた状態。
 		// バックアップからwp_optionsごと復元したサイトで実際に起きる。
 		update_option( Installer::VERSION_OPTION, Installer::DB_VERSION );
@@ -2462,6 +2477,8 @@ final class InstallerTest extends WP_UnitTestCase {
 	public function test_maybe_upgrade_skips_the_check_while_the_transient_is_set(): void {
 		global $wpdb;
 
+		$this->allowRealDdl();
+
 		update_option( Installer::VERSION_OPTION, Installer::DB_VERSION );
 		set_transient( 'rlt_schema_checked', 1, 12 * HOUR_IN_SECONDS );
 		$wpdb->query( 'DROP TABLE IF EXISTS ' . Installer::viewsTable() );
@@ -2476,24 +2493,43 @@ final class InstallerTest extends WP_UnitTestCase {
 		Installer::createTables();
 	}
 
-	public function set_up(): void {
-		parent::set_up();
+	public function test_maybe_upgrade_sets_the_transient_after_a_version_mismatch(): void {
+		update_option( Installer::VERSION_OPTION, '0.0.1' );
+		delete_transient( 'rlt_schema_checked' );
 
-		// WP_UnitTestCase wraps every test in a transaction and, to keep tests from
-		// touching the real schema, silently rewrites `CREATE TABLE` / `DROP TABLE`
-		// queries into their `TEMPORARY` equivalents (see start_transaction() in
-		// WP core's own test suite). The tests in this class intentionally drop and
-		// recreate a REAL table to exercise maybeUpgrade()'s self-healing path, so
-		// that rewriting has to be turned off here.
+		Installer::maybeUpgrade();
+		$this->realSchemaDdlRan = true;
+
+		// createTables() succeeded and tablesExist() verified it, so the version-
+		// mismatch branch should now cache that result exactly like the matching-
+		// version branch does, instead of trusting createTables() unconditionally.
+		$this->assertNotFalse( get_transient( 'rlt_schema_checked' ) );
+	}
+
+	/**
+	 * Turns off WP_UnitTestCase's rewrite of `CREATE TABLE` / `DROP TABLE` into
+	 * their `TEMPORARY` equivalents (see start_transaction() in WP core's own
+	 * test suite), for the current test only.
+	 *
+	 * Only the two tests that exercise maybeUpgrade()'s self-healing path need
+	 * this: they must drop and recreate a REAL table, not a temporary one. WP
+	 * core adds these filters fresh in parent::set_up(), bound to that test
+	 * method's own WP_UnitTestCase instance, so removing them here does not
+	 * leak into any other test in this class -- the next test method runs on a
+	 * new instance with the rewrite back in place.
+	 */
+	private function allowRealDdl(): void {
 		remove_filter( 'query', array( $this, '_create_temporary_tables' ) );
 		remove_filter( 'query', array( $this, '_drop_temporary_tables' ) );
+		$this->realSchemaDdlRan = true;
 	}
 
 	public function tear_down(): void {
-		// DROP TABLE / CREATE TABLE are DDL, which causes an implicit commit and
-		// therefore escapes the per-test transaction rollback WP_UnitTestCase relies
-		// on. Restore the schema whenever a test in this class left a table missing,
-		// so later tests never see a state left behind by the DDL tests above.
+		// DROP TABLE / CREATE TABLE / ALTER TABLE are DDL, which causes an implicit
+		// commit and therefore escapes the per-test transaction rollback
+		// WP_UnitTestCase relies on. Restore the schema whenever a test in this
+		// class left a table missing, so later tests never see a state left behind
+		// by the DDL tests above.
 		//
 		// This check is deliberately conditional: calling createTables() itself runs
 		// dbDelta, which is DDL and would implicit-commit the current test's own
@@ -2501,9 +2537,30 @@ final class InstallerTest extends WP_UnitTestCase {
 		// rollback for every other test in the class, not just the DDL ones.
 		if ( ! Installer::tablesExist() ) {
 			Installer::createTables();
+			$this->realSchemaDdlRan = true;
 		}
 
-		delete_transient( 'rlt_schema_checked' );
+		if ( $this->realSchemaDdlRan ) {
+			global $wpdb;
+
+			// Any call to Installer::createTables() / maybeUpgrade() in this test
+			// issued a real ALTER TABLE, which implicit-commits whatever was pending
+			// at that point and -- because the connection is still in
+			// `autocommit = 0` mode -- silently opens a *new* implicit transaction
+			// for every statement that follows, including this class's own cleanup
+			// writes below. WP_UnitTestCase's tear_down() only ever issues a single
+			// ROLLBACK, which would discard that new transaction (and our cleanup
+			// with it), leaving whatever update_option( VERSION_OPTION, ... ) the
+			// test made *before* the DDL permanently committed in the database.
+			//
+			// So the option/transient state has to be restored and the restoration
+			// itself explicitly committed here, rather than left to rollback -- the
+			// whole point being that rollback cannot be trusted once real DDL has
+			// run during this test.
+			delete_option( Installer::VERSION_OPTION );
+			delete_transient( 'rlt_schema_checked' );
+			$wpdb->query( 'COMMIT' );
+		}
 
 		parent::tear_down();
 	}
@@ -2614,19 +2671,32 @@ final class Installer {
 
 			error_log( '[rakuten-link-tracker] Installer: one or more tables were missing despite a matching DB version; recreating.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 
-			self::createTables();
-
-			if ( self::tablesExist() ) {
-				set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
-			}
+			self::createAndVerifySchema();
 
 			return;
 		}
 
-		self::createTables();
+		self::createAndVerifySchema();
 		self::addCapabilities();
 		update_option( self::VERSION_OPTION, self::DB_VERSION );
-		set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
+	}
+
+	/**
+	 * Creates the schema and only trusts it once tablesExist() confirms it,
+	 * caching that confirmation in the schema-check transient. Shared by both
+	 * branches of maybeUpgrade() so an upgrade that only partly succeeds is
+	 * never silently trusted for the next 12 hours -- the same guarantee the
+	 * matching-version branch already had.
+	 */
+	private static function createAndVerifySchema(): void {
+		self::createTables();
+
+		if ( self::tablesExist() ) {
+			set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
+			return;
+		}
+
+		error_log( '[rakuten-link-tracker] Installer: createTables() did not produce all expected tables; the schema check transient was not set.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 	}
 
 	/**
@@ -2771,7 +2841,7 @@ register_deactivation_hook(
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter InstallerTest
 ```
 
-Expected: PASS — `OK (11 tests, ...)`
+Expected: PASS — `OK (12 tests, ...)`
 
 - [ ] **Step 8: コミット**
 

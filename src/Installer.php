@@ -79,19 +79,32 @@ final class Installer {
 
 			error_log( '[rakuten-link-tracker] Installer: one or more tables were missing despite a matching DB version; recreating.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 
-			self::createTables();
-
-			if ( self::tablesExist() ) {
-				set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
-			}
+			self::createAndVerifySchema();
 
 			return;
 		}
 
-		self::createTables();
+		self::createAndVerifySchema();
 		self::addCapabilities();
 		update_option( self::VERSION_OPTION, self::DB_VERSION );
-		set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
+	}
+
+	/**
+	 * Creates the schema and only trusts it once tablesExist() confirms it,
+	 * caching that confirmation in the schema-check transient. Shared by both
+	 * branches of maybeUpgrade() so an upgrade that only partly succeeds is
+	 * never silently trusted for the next 12 hours -- the same guarantee the
+	 * matching-version branch already had.
+	 */
+	private static function createAndVerifySchema(): void {
+		self::createTables();
+
+		if ( self::tablesExist() ) {
+			set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
+			return;
+		}
+
+		error_log( '[rakuten-link-tracker] Installer: createTables() did not produce all expected tables; the schema check transient was not set.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 	}
 
 	/**
