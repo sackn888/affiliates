@@ -172,6 +172,16 @@ final class PostSyncTest extends WP_UnitTestCase {
 		$this->assertFalse( $this->sync->restorePost( $postId ) );
 	}
 
+	public function test_restore_works_for_a_link_published_under_an_old_prefix(): void {
+		$postId = $this->createPostWithLink( '<a href="' . self::AFFILIATE . '">ホテル</a>' );
+
+		// プレフィックスを変更しても、本文に残る旧URLは復元できなければならない。
+		\RLT\Settings::update( array( 'prefix' => 'out' ) );
+
+		$this->assertTrue( $this->sync->restorePost( $postId ) );
+		$this->assertStringContainsString( self::AFFILIATE, get_post_field( 'post_content', $postId ) );
+	}
+
 	public function test_two_posts_sharing_a_url_get_different_codes(): void {
 		$a = $this->createPostWithLink( '<a href="' . self::AFFILIATE . '">ホテル</a>' );
 		$b = $this->createPostWithLink( '<a href="' . self::AFFILIATE . '">ホテル</a>' );

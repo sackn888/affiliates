@@ -155,9 +155,18 @@ final class PostSync {
 			return false;
 		}
 
+		// A key is built for every prefix the site has ever used (current plus
+		// past, see Settings::allPrefixes()), not just the current one:
+		// content published while an older prefix was active still holds a
+		// short URL built with that prefix, and it must still be restorable
+		// after the prefix changes. Mirrors LinkRepository::restoreMap().
+		$prefixes = Settings::allPrefixes();
+
 		$map = array();
 		foreach ( $this->links->findByPost( $postId, false ) as $link ) {
-			$map[ Settings::shortUrl( $link['code'] ) ] = $link['target_url'];
+			foreach ( $prefixes as $prefix ) {
+				$map[ Settings::shortUrlFor( $prefix, $link['code'] ) ] = $link['target_url'];
+			}
 		}
 
 		if ( array() === $map ) {

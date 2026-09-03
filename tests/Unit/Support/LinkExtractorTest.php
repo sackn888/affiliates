@@ -83,6 +83,23 @@ final class LinkExtractorTest extends TestCase {
 		$this->assertSame( array(), $extractor->extract( $html ) );
 	}
 
+	/**
+	 * @dataProvider dangerousSchemes
+	 */
+	public function test_a_dangerous_scheme_is_not_trackable_even_on_an_allowed_host( string $url ): void {
+		$html = '<a href="' . $url . '">わな</a>';
+
+		$this->assertSame( array(), $this->extractor()->extract( $html ) );
+	}
+
+	public static function dangerousSchemes(): array {
+		return array(
+			'javascript' => array( 'javascript://hb.afl.rakuten.co.jp/%0aalert(1)' ),
+			'data'       => array( 'data://hb.afl.rakuten.co.jp/x' ),
+			'ftp'        => array( 'ftp://hb.afl.rakuten.co.jp/x' ),
+		);
+	}
+
 	public function test_is_idempotent_on_mixed_content(): void {
 		$html = '<a href="https://example.com/go/abc123">変換済み</a>'
 			. '<a href="https://hb.afl.rakuten.co.jp/hgc/xyz/?pc=y">未変換</a>';

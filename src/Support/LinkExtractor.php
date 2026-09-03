@@ -153,6 +153,18 @@ final class LinkExtractor {
 			}
 		}
 
+		// parse_url() happily returns a host for non-HTTP schemes too --
+		// parse_url('javascript://hb.afl.rakuten.co.jp/%0aalert(1)') yields
+		// an allowed host with an "authority" that is not really a network
+		// location at all. The host check alone is therefore not sufficient;
+		// only http(s) URLs may be treated as trackable affiliate links,
+		// since the stored target_url is later handed straight to a redirect.
+		$scheme = strtolower( (string) parse_url( $url, PHP_URL_SCHEME ) );
+
+		if ( ! in_array( $scheme, array( 'http', 'https' ), true ) ) {
+			return false;
+		}
+
 		$host = strtolower( (string) parse_url( $url, PHP_URL_HOST ) );
 
 		if ( '' === $host ) {

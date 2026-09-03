@@ -1436,6 +1436,18 @@ final class LinkExtractor {
 			return false;
 		}
 
+		// parse_url() happily returns a host for non-HTTP schemes too --
+		// parse_url('javascript://hb.afl.rakuten.co.jp/%0aalert(1)') yields
+		// an allowed host with an "authority" that is not really a network
+		// location at all. The host check alone is therefore not sufficient;
+		// only http(s) URLs may be treated as trackable affiliate links,
+		// since the stored target_url is later handed straight to a redirect.
+		$scheme = strtolower( (string) parse_url( $url, PHP_URL_SCHEME ) );
+
+		if ( ! in_array( $scheme, array( 'http', 'https' ), true ) ) {
+			return false;
+		}
+
 		$host = strtolower( (string) parse_url( $url, PHP_URL_HOST ) );
 
 		if ( '' === $host ) {
@@ -4326,9 +4338,18 @@ final class PostSync {
 			return false;
 		}
 
+		// A key is built for every prefix the site has ever used (current plus
+		// past, see Settings::allPrefixes()), not just the current one:
+		// content published while an older prefix was active still holds a
+		// short URL built with that prefix, and it must still be restorable
+		// after the prefix changes. Mirrors LinkRepository::restoreMap().
+		$prefixes = Settings::allPrefixes();
+
 		$map = array();
 		foreach ( $this->links->findByPost( $postId, false ) as $link ) {
-			$map[ Settings::shortUrl( $link['code'] ) ] = $link['target_url'];
+			foreach ( $prefixes as $prefix ) {
+				$map[ Settings::shortUrlFor( $prefix, $link['code'] ) ] = $link['target_url'];
+			}
 		}
 
 		if ( array() === $map ) {
@@ -4775,6 +4796,27 @@ final class RedirectHandler {
 			} catch ( \Throwable $e ) {
 				error_log( '[rakuten-link-tracker] click tracking failed: ' . $e->getMessage() );
 			}
+		}
+
+		// Belt-and-braces scheme check, even though LinkExtractor already
+		// rejects non-http(s) URLs before a link is ever created: rows
+		// inserted before that fix still exist, and target_url is editable
+		// through the links admin screen (a later task), so a dangerous
+		// value can still reach this point. wp_redirect() only sanitises
+		// characters -- it does not restrict scheme or host the way
+		// wp_safe_redirect() would -- so an unchecked value here would let a
+		// public /{prefix}/{code} URL turn into an open redirect to
+		// javascript:/data:/etc. This must never throw: a malformed
+		// target_url falls through to the ordinary "unknown code" handling
+		// instead of blocking the redirect guarantee for every other link.
+		$scheme = strtolower( (string) parse_url( (string) $link['target_url'], PHP_URL_SCHEME ) );
+
+		if ( ! in_array( $scheme, array( 'http', 'https' ), true ) ) {
+			error_log( '[rakuten-link-tracker] refused to redirect code "' . $code . '": target_url has a disallowed scheme.' );
+
+			$this->handleUnknownCode();
+
+			return;
 		}
 
 		wp_redirect( $link['target_url'], 302 );

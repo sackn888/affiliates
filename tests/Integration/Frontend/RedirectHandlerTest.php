@@ -143,6 +143,29 @@ final class RedirectHandlerTest extends WP_UnitTestCase {
 		$this->handler->handle();
 	}
 
+	public function test_a_target_url_with_a_dangerous_scheme_is_not_redirected_to(): void {
+		$link = $this->makeLink();
+		$this->links->update( $link['id'], array( 'target_url' => 'javascript://hb.afl.rakuten.co.jp/%0aalert(1)' ) );
+
+		set_query_var( RedirectHandler::QUERY_VAR, $link['code'] );
+
+		try {
+			$this->handler->handle();
+			$this->fail( 'Expected a redirect to the fallback.' );
+		} catch ( RedirectCaught $caught ) {
+			// 公開URLからのオープンリダイレクトになるため、遷移先にしてはならない。
+			$this->assertSame( home_url( '/' ), $caught->location );
+		}
+	}
+
+	public function test_an_ordinary_https_target_still_redirects(): void {
+		$link = $this->makeLink();
+		set_query_var( RedirectHandler::QUERY_VAR, $link['code'] );
+
+		$this->expectException( RedirectCaught::class );
+		$this->handler->handle();
+	}
+
 	public function test_handle_sends_the_visitor_home_for_an_unknown_code(): void {
 		Settings::update( array( 'unknown_code' => 'home' ) );
 		set_query_var( RedirectHandler::QUERY_VAR, 'zzzzzz' );

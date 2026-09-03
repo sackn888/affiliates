@@ -240,7 +240,7 @@ final class LinkRepository {
 			$target = (string) $row['target_url'];
 
 			foreach ( $prefixes as $prefix ) {
-				$map[ home_url( '/' . $prefix . '/' . $code ) ] = $target;
+				$map[ Settings::shortUrlFor( $prefix, $code ) ] = $target;
 			}
 		}
 

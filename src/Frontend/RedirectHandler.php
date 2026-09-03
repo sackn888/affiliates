@@ -121,6 +121,27 @@ final class RedirectHandler {
 			}
 		}
 
+		// Belt-and-braces scheme check, even though LinkExtractor already
+		// rejects non-http(s) URLs before a link is ever created: rows
+		// inserted before that fix still exist, and target_url is editable
+		// through the links admin screen (a later task), so a dangerous
+		// value can still reach this point. wp_redirect() only sanitises
+		// characters -- it does not restrict scheme or host the way
+		// wp_safe_redirect() would -- so an unchecked value here would let a
+		// public /{prefix}/{code} URL turn into an open redirect to
+		// javascript:/data:/etc. This must never throw: a malformed
+		// target_url falls through to the ordinary "unknown code" handling
+		// instead of blocking the redirect guarantee for every other link.
+		$scheme = strtolower( (string) parse_url( (string) $link['target_url'], PHP_URL_SCHEME ) );
+
+		if ( ! in_array( $scheme, array( 'http', 'https' ), true ) ) {
+			error_log( '[rakuten-link-tracker] refused to redirect code "' . $code . '": target_url has a disallowed scheme.' );
+
+			$this->handleUnknownCode();
+
+			return;
+		}
+
 		wp_redirect( $link['target_url'], 302 );
 		exit;
 	}

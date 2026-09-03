@@ -185,6 +185,17 @@ final class Settings {
 	}
 
 	/**
+	 * Short URL for a specific prefix, not necessarily the current one.
+	 *
+	 * Used wherever a short URL must be reconstructed for a prefix a post's
+	 * content might still hold (current or past) -- e.g. building a restore
+	 * map -- so that logic cannot drift from shortUrl()/shortBase().
+	 */
+	public static function shortUrlFor( string $prefix, string $code ): string {
+		return home_url( '/' . $prefix . '/' ) . $code;
+	}
+
+	/**
 	 * @return string[]
 	 */
 	public static function hosts(): array {
