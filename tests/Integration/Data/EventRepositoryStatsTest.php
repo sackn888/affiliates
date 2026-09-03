@@ -205,7 +205,7 @@ final class EventRepositoryStatsTest extends WP_UnitTestCase {
 		$this->assertSame( $link['code'], $rows[0]['code'] );
 		$this->assertSame( 2, $rows[0]['clicks'] );
 		$this->assertSame( 1, $rows[0]['unique_clicks'] );
-		$this->assertSame( 2, $rows[0]['views'] );
+		$this->assertSame( 2, $rows[0]['post_views'] );
 		$this->assertSame( 1.0, $rows[0]['ctr'] );
 		$this->assertNotNull( $rows[0]['last_click'] );
 	}
@@ -286,5 +286,23 @@ final class EventRepositoryStatsTest extends WP_UnitTestCase {
 		$this->assertSame( 'ホテルA', $rows[0]['label'] );
 		$this->assertSame( 'desktop', $rows[0]['device'] );
 		$this->assertArrayNotHasKey( 'visitor_hash', $rows[0] );
+	}
+
+	public function test_by_link_reports_the_posts_view_total_on_every_link_of_that_post(): void {
+		$a = $this->links->findOrCreate( 'https://hb.afl.rakuten.co.jp/regression/a', 99, 'A' );
+		$b = $this->links->findOrCreate( 'https://hb.afl.rakuten.co.jp/regression/b', 99, 'B' );
+
+		$this->click( $a['id'], 99, '2026-09-01', 'v1' );
+		$this->view( 99, '2026-09-01', 'v1' );
+		$this->view( 99, '2026-09-01', 'v2' );
+
+		$rows = $this->events->byLink( new DateRange( '2026-09-01', '2026-09-01' ), false, null, 'clicks', 50 );
+
+		$this->assertCount( 2, $rows );
+
+		// 同じ記事のリンクには同じ記事PVが入る。行をまたいで合計してはならない。
+		foreach ( $rows as $row ) {
+			$this->assertSame( 2, $row['post_views'], 'post_views must be the post total, repeated per link.' );
+		}
 	}
 }

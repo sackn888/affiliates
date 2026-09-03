@@ -5570,7 +5570,7 @@ git commit -m "feat: 期間指定とタイムゾーン変換をDateRangeに集�
   - `summary(DateRange $range, bool $includeBots = false): array` → `['clicks'=>int,'unique_clicks'=>int,'views'=>int,'unique_views'=>int,'ctr'=>float]`
   - `daily(DateRange $range, bool $includeBots = false): array` → `[['date'=>string,'clicks'=>int,'views'=>int], ...]`（欠損日は0で埋める）
   - `byPost(DateRange $range, bool $includeBots, string $orderby, int $limit): array` → `[['post_id'=>int,'views'=>int,'clicks'=>int,'ctr'=>float], ...]`
-  - `byLink(DateRange $range, bool $includeBots, ?int $postId, string $orderby, int $limit): array` → `[['link_id'=>int,'code'=>string,'label'=>string,'post_id'=>int,'target_url'=>string,'status'=>int,'clicks'=>int,'unique_clicks'=>int,'views'=>int,'ctr'=>float,'last_click'=>?string], ...]`
+  - `byLink(DateRange $range, bool $includeBots, ?int $postId, string $orderby, int $limit): array` → `[['link_id'=>int,'code'=>string,'label'=>string,'post_id'=>int,'target_url'=>string,'status'=>int,'clicks'=>int,'unique_clicks'=>int,'post_views'=>int,'ctr'=>float,'last_click'=>?string], ...]`
   - `linkDetail(int $linkId, DateRange $range, bool $includeBots): array` → `['daily'=>[['date','clicks']], 'referers'=>[['referer','clicks']], 'devices'=>[['device'=>int,'label'=>string,'clicks'=>int]]]`
   - `clicksForExport(DateRange $range, bool $includeBots): array`
   - `viewsForExport(DateRange $range, bool $includeBots): array`
@@ -5790,7 +5790,7 @@ final class EventRepositoryStatsTest extends WP_UnitTestCase {
 		$this->assertSame( $link['code'], $rows[0]['code'] );
 		$this->assertSame( 2, $rows[0]['clicks'] );
 		$this->assertSame( 1, $rows[0]['unique_clicks'] );
-		$this->assertSame( 2, $rows[0]['views'] );
+		$this->assertSame( 2, $rows[0]['post_views'] );
 		$this->assertSame( 1.0, $rows[0]['ctr'] );
 		$this->assertNotNull( $rows[0]['last_click'] );
 	}
@@ -7104,7 +7104,7 @@ final class StatsController {
 		$dead = array_values(
 			array_filter(
 				$topLinks,
-				static fn ( array $row ): bool => 0 === $row['clicks'] && $row['views'] > 0
+				static fn ( array $row ): bool => 0 === $row['clicks'] && $row['post_views'] > 0
 			)
 		);
 

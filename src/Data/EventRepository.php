@@ -230,12 +230,12 @@ final class EventRepository {
 					COUNT(c.id) AS clicks,
 					COUNT(DISTINCT c.visitor_hash) AS unique_clicks,
 					MAX(c.clicked_at) AS last_click,
-					COALESCE(v.views, 0) AS views
+					COALESCE(v.post_views, 0) AS post_views
 				FROM {$links} l
 				LEFT JOIN {$clicks} c
 					ON c.link_id = l.id AND c.clicked_at BETWEEN %s AND %s{$botClicks}
 				LEFT JOIN (
-					SELECT post_id, COUNT(*) AS views
+					SELECT post_id, COUNT(*) AS post_views
 					FROM {$views}
 					WHERE viewed_at BETWEEN %s AND %s{$botViews}
 					GROUP BY post_id
@@ -262,8 +262,8 @@ final class EventRepository {
 				'status'        => (int) $row['status'],
 				'clicks'        => (int) $row['clicks'],
 				'unique_clicks' => (int) $row['unique_clicks'],
-				'views'         => (int) $row['views'],
-				'ctr'           => self::ctr( (int) $row['clicks'], (int) $row['views'] ),
+				'post_views'    => (int) $row['post_views'],
+				'ctr'           => self::ctr( (int) $row['clicks'], (int) $row['post_views'] ),
 				'last_click'    => null === $row['last_click'] ? null : (string) $row['last_click'],
 			);
 		}
