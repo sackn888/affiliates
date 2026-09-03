@@ -45,5 +45,6 @@ final class Plugin {
 
 		( new \RLT\Frontend\PostSync() )->register();
 		( new \RLT\Frontend\RedirectHandler() )->register();
+		( new \RLT\Frontend\BeaconController() )->register();
 	}
 }
