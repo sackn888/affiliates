@@ -3827,11 +3827,15 @@ final class RedirectHandlerTest extends WP_UnitTestCase {
 	}
 
 	public function test_handle_does_nothing_without_a_code(): void {
+		global $wpdb;
+
 		set_query_var( RedirectHandler::QUERY_VAR, '' );
 
+		// リダイレクトしていれば wp_redirect フィルタが RedirectCaught を投げ、
+		// このテストは例外で落ちる。落ちないこと自体が「素通りした」証拠。
 		$this->handler->handle();
 
-		$this->assertTrue( true, 'handle() returned without redirecting.' );
+		$this->assertSame( '0', $wpdb->get_var( 'SELECT COUNT(*) FROM ' . Installer::clicksTable() ) );
 	}
 
 	public function test_head_requests_are_not_recorded(): void {
