@@ -5255,6 +5255,13 @@ final class BeaconController {
 		return;
 	}
 
+	// A browser old enough to lack sendBeacon is likely to also lack fetch.
+	// Browsers too old to support fetch cannot send pageviews anyway, so give up
+	// silently rather than throwing.
+	if ( typeof fetch !== 'function' ) {
+		return;
+	}
+
 	fetch( config.endpoint, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -5285,7 +5292,7 @@ final class BeaconController {
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BeaconControllerTest
 ```
 
-Expected: PASS — `OK (11 tests, ...)`
+Expected: PASS — `OK (10 tests, ...)`
 
 - [ ] **Step 7: コミット**
 
