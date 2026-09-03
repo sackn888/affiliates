@@ -2284,6 +2284,7 @@ git commit -m "feat: 設定の既定値・サニタイズ・訪問者ソルト�
   - `RLT\Installer::viewsTable(): string`
   - `RLT\Installer::activate(): void`
   - `RLT\Installer::maybeUpgrade(): void`
+  - `RLT\Installer::tablesExist(): bool`
   - `RLT\Installer::createTables(): void`
   - `RLT\Installer::dropTables(): void`
   - `RLT\Installer::addCapabilities(): void`
@@ -2437,6 +2438,75 @@ final class InstallerTest extends WP_UnitTestCase {
 		$this->assertNotNull( $role );
 		$this->assertTrue( $role->has_cap( Installer::CAPABILITY ) );
 	}
+
+	public function test_tables_exist_reports_true_when_all_three_are_present(): void {
+		$this->assertTrue( Installer::tablesExist() );
+	}
+
+	public function test_maybe_upgrade_recreates_a_dropped_table(): void {
+		global $wpdb;
+
+		// バージョンは一致したまま、テーブルだけが失われた状態。
+		// バックアップからwp_optionsごと復元したサイトで実際に起きる。
+		update_option( Installer::VERSION_OPTION, Installer::DB_VERSION );
+		delete_transient( 'rlt_schema_checked' );
+		$wpdb->query( 'DROP TABLE IF EXISTS ' . Installer::viewsTable() );
+
+		$this->assertFalse( Installer::tablesExist() );
+
+		Installer::maybeUpgrade();
+
+		$this->assertTrue( Installer::tablesExist() );
+	}
+
+	public function test_maybe_upgrade_skips_the_check_while_the_transient_is_set(): void {
+		global $wpdb;
+
+		update_option( Installer::VERSION_OPTION, Installer::DB_VERSION );
+		set_transient( 'rlt_schema_checked', 1, 12 * HOUR_IN_SECONDS );
+		$wpdb->query( 'DROP TABLE IF EXISTS ' . Installer::viewsTable() );
+
+		Installer::maybeUpgrade();
+
+		// トランジェントが立っている間は問い合わせ自体を省くため、復旧しないのが正しい。
+		$this->assertFalse( Installer::tablesExist() );
+
+		// 後続のテストのために元に戻す。
+		delete_transient( 'rlt_schema_checked' );
+		Installer::createTables();
+	}
+
+	public function set_up(): void {
+		parent::set_up();
+
+		// WP_UnitTestCase wraps every test in a transaction and, to keep tests from
+		// touching the real schema, silently rewrites `CREATE TABLE` / `DROP TABLE`
+		// queries into their `TEMPORARY` equivalents (see start_transaction() in
+		// WP core's own test suite). The tests in this class intentionally drop and
+		// recreate a REAL table to exercise maybeUpgrade()'s self-healing path, so
+		// that rewriting has to be turned off here.
+		remove_filter( 'query', array( $this, '_create_temporary_tables' ) );
+		remove_filter( 'query', array( $this, '_drop_temporary_tables' ) );
+	}
+
+	public function tear_down(): void {
+		// DROP TABLE / CREATE TABLE are DDL, which causes an implicit commit and
+		// therefore escapes the per-test transaction rollback WP_UnitTestCase relies
+		// on. Restore the schema whenever a test in this class left a table missing,
+		// so later tests never see a state left behind by the DDL tests above.
+		//
+		// This check is deliberately conditional: calling createTables() itself runs
+		// dbDelta, which is DDL and would implicit-commit the current test's own
+		// pending changes even when nothing needs to change — silently breaking the
+		// rollback for every other test in the class, not just the DDL ones.
+		if ( ! Installer::tablesExist() ) {
+			Installer::createTables();
+		}
+
+		delete_transient( 'rlt_schema_checked' );
+
+		parent::tear_down();
+	}
 }
 ```
 
@@ -2483,6 +2553,11 @@ final class Installer {
 	 */
 	private const ROLES = array( 'administrator', 'editor' );
 
+	/**
+	 * How long a successful schema check is trusted before it is repeated.
+	 */
+	private const SCHEMA_CHECK_TRANSIENT = 'rlt_schema_checked';
+
 	public static function linksTable(): string {
 		global $wpdb;
 
@@ -2518,12 +2593,57 @@ final class Installer {
 	 */
 	public static function maybeUpgrade(): void {
 		if ( get_option( self::VERSION_OPTION ) === self::DB_VERSION ) {
+			// The version matches, but that alone doesn't prove the tables are
+			// still there: a site restored from a backup can bring back
+			// wp_options (and so this matching version) without the plugin's
+			// custom tables, or an admin can drop a table by hand. Verify the
+			// schema before trusting the version number.
+			//
+			// A `SHOW TABLES` round trip on every single request is wasted cost
+			// for the overwhelmingly common case where nothing is wrong, so the
+			// result of a successful check is cached in a transient and only
+			// re-checked twice a day.
+			if ( false !== get_transient( self::SCHEMA_CHECK_TRANSIENT ) ) {
+				return;
+			}
+
+			if ( self::tablesExist() ) {
+				set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
+				return;
+			}
+
+			error_log( '[rakuten-link-tracker] Installer: one or more tables were missing despite a matching DB version; recreating.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+
+			self::createTables();
+
+			if ( self::tablesExist() ) {
+				set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
+			}
+
 			return;
 		}
 
 		self::createTables();
 		self::addCapabilities();
 		update_option( self::VERSION_OPTION, self::DB_VERSION );
+		set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
+	}
+
+	/**
+	 * Whether all three of the plugin's tables are present in the database.
+	 */
+	public static function tablesExist(): bool {
+		global $wpdb;
+
+		foreach ( array( self::linksTable(), self::clicksTable(), self::viewsTable() ) as $table ) {
+			$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+
+			if ( $found !== $table ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	public static function createTables(): void {
@@ -2651,7 +2771,7 @@ register_deactivation_hook(
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter InstallerTest
 ```
 
-Expected: PASS — `OK (8 tests, ...)`
+Expected: PASS — `OK (11 tests, ...)`
 
 - [ ] **Step 8: コミット**
 

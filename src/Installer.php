@@ -18,6 +18,11 @@ final class Installer {
 	 */
 	private const ROLES = array( 'administrator', 'editor' );
 
+	/**
+	 * How long a successful schema check is trusted before it is repeated.
+	 */
+	private const SCHEMA_CHECK_TRANSIENT = 'rlt_schema_checked';
+
 	public static function linksTable(): string {
 		global $wpdb;
 
@@ -53,12 +58,57 @@ final class Installer {
 	 */
 	public static function maybeUpgrade(): void {
 		if ( get_option( self::VERSION_OPTION ) === self::DB_VERSION ) {
+			// The version matches, but that alone doesn't prove the tables are
+			// still there: a site restored from a backup can bring back
+			// wp_options (and so this matching version) without the plugin's
+			// custom tables, or an admin can drop a table by hand. Verify the
+			// schema before trusting the version number.
+			//
+			// A `SHOW TABLES` round trip on every single request is wasted cost
+			// for the overwhelmingly common case where nothing is wrong, so the
+			// result of a successful check is cached in a transient and only
+			// re-checked twice a day.
+			if ( false !== get_transient( self::SCHEMA_CHECK_TRANSIENT ) ) {
+				return;
+			}
+
+			if ( self::tablesExist() ) {
+				set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
+				return;
+			}
+
+			error_log( '[rakuten-link-tracker] Installer: one or more tables were missing despite a matching DB version; recreating.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+
+			self::createTables();
+
+			if ( self::tablesExist() ) {
+				set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
+			}
+
 			return;
 		}
 
 		self::createTables();
 		self::addCapabilities();
 		update_option( self::VERSION_OPTION, self::DB_VERSION );
+		set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
+	}
+
+	/**
+	 * Whether all three of the plugin's tables are present in the database.
+	 */
+	public static function tablesExist(): bool {
+		global $wpdb;
+
+		foreach ( array( self::linksTable(), self::clicksTable(), self::viewsTable() ) as $table ) {
+			$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+
+			if ( $found !== $table ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	public static function createTables(): void {
