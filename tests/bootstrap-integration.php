@@ -20,3 +20,7 @@ tests_add_filter(
 );
 
 require $rlt_tests_dir . '/includes/bootstrap.php';
+
+// Create the plugin's tables once, before any test transaction starts.
+\RLT\Installer::createTables();
+\RLT\Installer::addCapabilities();

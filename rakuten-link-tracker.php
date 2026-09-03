@@ -24,4 +24,12 @@ if ( is_readable( __DIR__ . '/vendor/autoload.php' ) ) {
 	require_once __DIR__ . '/vendor/autoload.php';
 }
 
+register_activation_hook( __FILE__, array( \RLT\Installer::class, 'activate' ) );
+register_deactivation_hook(
+	__FILE__,
+	static function (): void {
+		flush_rewrite_rules();
+	}
+);
+
 \RLT\Plugin::instance()->boot();

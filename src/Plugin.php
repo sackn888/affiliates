@@ -41,6 +41,6 @@ final class Plugin {
 	 * Register every hook the plugin uses.
 	 */
 	public function boot(): void {
-		// Hooks are registered by later tasks.
+		add_action( 'plugins_loaded', array( Installer::class, 'maybeUpgrade' ) );
 	}
 }
