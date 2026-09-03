@@ -115,6 +115,7 @@ npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-track
 .phpunit.result.cache
 phpunit-unit.xml
 phpunit-integration.xml
+/.superpowers/
 ```
 
 - [ ] **Step 2: `composer.json` を作る**
