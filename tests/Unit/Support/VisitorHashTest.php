@@ -43,10 +43,22 @@ final class VisitorHashTest extends TestCase {
 		$this->assertNotSame( $today, $tomorrow );
 	}
 
-	public function test_hash_does_not_contain_the_raw_ip(): void {
+	public function test_output_is_a_hex_digest_not_the_input(): void {
 		$hash = VisitorHash::make( '203.0.113.5', 'Mozilla/5.0', 'salt' );
 
+		// Irreversibility is a design property of hashing, not something a unit test can
+		// establish. But we can verify that the output is not plaintext input.
 		$this->assertStringNotContainsString( '203.0.113.5', $hash );
+		$this->assertStringNotContainsString( 'Mozilla/5.0', $hash );
+	}
+
+	public function test_a_pipe_in_the_user_agent_cannot_forge_another_visitors_hash(): void {
+		// ユーザーエージェントは訪問者が自由に決められる。区切り文字をまたいで
+		// 別の訪問者のハッシュに一致させられてはならない。
+		$crafted = VisitorHash::make( '203.0.113.5', 'Mozilla|salt-a', 'salt-b' );
+		$honest  = VisitorHash::make( '203.0.113.5', 'Mozilla', 'salt-a|salt-b' );
+
+		$this->assertNotSame( $crafted, $honest );
 	}
 
 	public function test_new_salt_is_random_hex(): void {

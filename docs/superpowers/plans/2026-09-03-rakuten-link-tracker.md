@@ -938,10 +938,22 @@ final class VisitorHashTest extends TestCase {
 		$this->assertNotSame( $today, $tomorrow );
 	}
 
-	public function test_hash_does_not_contain_the_raw_ip(): void {
+	public function test_output_is_a_hex_digest_not_the_input(): void {
 		$hash = VisitorHash::make( '203.0.113.5', 'Mozilla/5.0', 'salt' );
 
+		// Irreversibility is a design property of hashing, not something a unit test can
+		// establish. But we can verify that the output is not plaintext input.
 		$this->assertStringNotContainsString( '203.0.113.5', $hash );
+		$this->assertStringNotContainsString( 'Mozilla/5.0', $hash );
+	}
+
+	public function test_a_pipe_in_the_user_agent_cannot_forge_another_visitors_hash(): void {
+		// ユーザーエージェントは訪問者が自由に決められる。区切り文字をまたいで
+		// 別の訪問者のハッシュに一致させられてはならない。
+		$crafted = VisitorHash::make( '203.0.113.5', 'Mozilla|salt-a', 'salt-b' );
+		$honest  = VisitorHash::make( '203.0.113.5', 'Mozilla', 'salt-a|salt-b' );
+
+		$this->assertNotSame( $crafted, $honest );
 	}
 
 	public function test_new_salt_is_random_hex(): void {
@@ -974,18 +986,24 @@ declare(strict_types=1);
 namespace RLT\Support;
 
 /**
- * Derives a non-reversible visitor identifier.
+ * Derives a visitor identifier from IP and user-agent.
  *
  * The raw IP address is never stored anywhere. Because the salt rotates daily,
  * the same visitor produces a different hash tomorrow, so "unique" counts are
- * per-day only. That is an intentional privacy trade-off, not a bug.
+ * per-day only. This is an intentional privacy trade-off. Note that with a known
+ * salt, the digest is not resistant to brute-force attacks over the IP × user-agent space.
  *
  * Pure: no WordPress dependency.
  */
 final class VisitorHash {
 
 	public static function make( string $ip, string $userAgent, string $salt ): string {
-		return hash( 'sha256', $ip . '|' . $userAgent . '|' . $salt );
+		// Hash each field independently so an attacker cannot use a pipe character
+		// in the user-agent to forge a hash with a different salt value.
+		return hash(
+			'sha256',
+			hash( 'sha256', $ip ) . hash( 'sha256', $userAgent ) . $salt
+		);
 	}
 
 	public static function newSalt(): string {
@@ -1000,7 +1018,7 @@ final class VisitorHash {
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter VisitorHashTest
 ```
 
-Expected: PASS — `OK (7 tests, ...)`
+Expected: PASS — `OK (8 tests, 11 assertions)`
 
 - [ ] **Step 5: コミット**
 
