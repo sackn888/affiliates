@@ -157,6 +157,35 @@ final class LinkExtractorTest extends TestCase {
 		$this->assertLessThanOrEqual( 255, strlen( $links[0]['label'] ) );
 	}
 
+	/**
+	 * @dataProvider labelsThatCutMidCharacter
+	 */
+	public function test_truncated_label_is_still_valid_utf8( string $label ): void {
+		$html = '<a href="https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x">' . $label . '</a>';
+
+		$result = $this->extractor()->extract( $html )[0]['label'];
+
+		$this->assertLessThanOrEqual( 255, strlen( $result ) );
+		// 途中で切れた多バイト文字が残ると DB 書き込みで壊れる。
+		$this->assertSame(
+			$result,
+			mb_convert_encoding( $result, 'UTF-8', 'UTF-8' ),
+			'Truncated label is not valid UTF-8.'
+		);
+	}
+
+	public static function labelsThatCutMidCharacter(): array {
+		return array(
+			// 1バイトの接頭辞を置くと、255バイト目が3バイト文字の途中に落ちる。
+			'3-byte cut after one byte'   => array( 'x' . str_repeat( 'あ', 300 ) ),
+			'3-byte cut after two bytes'  => array( 'xx' . str_repeat( 'あ', 300 ) ),
+			'4-byte emoji boundary'       => array( str_repeat( '😀', 100 ) ),
+			'4-byte emoji offset by one'  => array( 'x' . str_repeat( '😀', 100 ) ),
+			'4-byte emoji offset by two'  => array( 'xx' . str_repeat( '😀', 100 ) ),
+			'4-byte emoji offset by three' => array( 'xxx' . str_repeat( '😀', 100 ) ),
+		);
+	}
+
 	public function test_returns_empty_array_for_empty_content(): void {
 		$this->assertSame( array(), $this->extractor()->extract( '' ) );
 	}

@@ -1207,6 +1207,35 @@ final class LinkExtractorTest extends TestCase {
 		$this->assertLessThanOrEqual( 255, strlen( $links[0]['label'] ) );
 	}
 
+	/**
+	 * @dataProvider labelsThatCutMidCharacter
+	 */
+	public function test_truncated_label_is_still_valid_utf8( string $label ): void {
+		$html = '<a href="https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x">' . $label . '</a>';
+
+		$result = $this->extractor()->extract( $html )[0]['label'];
+
+		$this->assertLessThanOrEqual( 255, strlen( $result ) );
+		// 途中で切れた多バイト文字が残ると DB 書き込みで壊れる。
+		$this->assertSame(
+			$result,
+			mb_convert_encoding( $result, 'UTF-8', 'UTF-8' ),
+			'Truncated label is not valid UTF-8.'
+		);
+	}
+
+	public static function labelsThatCutMidCharacter(): array {
+		return array(
+			// 1バイトの接頭辞を置くと、255バイト目が3バイト文字の途中に落ちる。
+			'3-byte cut after one byte'   => array( 'x' . str_repeat( 'あ', 300 ) ),
+			'3-byte cut after two bytes'  => array( 'xx' . str_repeat( 'あ', 300 ) ),
+			'4-byte emoji boundary'       => array( str_repeat( '😀', 100 ) ),
+			'4-byte emoji offset by one'  => array( 'x' . str_repeat( '😀', 100 ) ),
+			'4-byte emoji offset by two'  => array( 'xx' . str_repeat( '😀', 100 ) ),
+			'4-byte emoji offset by three' => array( 'xxx' . str_repeat( '😀', 100 ) ),
+		);
+	}
+
 	public function test_returns_empty_array_for_empty_content(): void {
 		$this->assertSame( array(), $this->extractor()->extract( '' ) );
 	}
@@ -1286,7 +1315,20 @@ final class LinkExtractor {
 		// Capture the whole anchor so the inner markup is available for labelling.
 		$pattern = '/<a\b([^>]*?)>(.*?)<\/a\s*>/is';
 
-		if ( ! preg_match_all( $pattern, $html, $matches, PREG_SET_ORDER ) ) {
+		$matchCount = preg_match_all( $pattern, $html, $matches, PREG_SET_ORDER );
+
+		// preg_match_all() returns false (PCRE backtrack/recursion limit hit,
+		// or another engine error) as well as 0 (genuinely no matches). Those
+		// are not the same situation: false means extraction was skipped, not
+		// that the content has no affiliate links, so it must be logged
+		// rather than silently treated like a normal "nothing found" result.
+		if ( false === $matchCount ) {
+			error_log( '[rakuten-link-tracker] LinkExtractor: preg_match_all() failed; link extraction skipped for this content.' );
+
+			return array();
+		}
+
+		if ( 0 === $matchCount ) {
 			return array();
 		}
 
@@ -1384,7 +1426,16 @@ final class LinkExtractor {
 
 		$cut = substr( $text, 0, self::MAX_LABEL_BYTES );
 
-		return (string) preg_replace( '/[\x80-\xBF]*$|[\xC0-\xFF]$/', '', $cut );
+		// A hard byte cut can land inside a multibyte sequence, leaving a lead
+		// byte with too few (or zero) continuation bytes trailing it. That
+		// trailing fragment is not valid UTF-8 on its own, so the whole
+		// incomplete sequence — lead byte and whatever continuation bytes it
+		// kept — must be dropped, not just the continuation bytes.
+		return (string) preg_replace(
+			'/(?:[\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$/',
+			'',
+			$cut
+		);
 	}
 }
 ```
@@ -1395,7 +1446,7 @@ final class LinkExtractor {
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter LinkExtractorTest
 ```
 
-Expected: PASS — `OK (19 tests, ...)`
+Expected: PASS — `OK (25 tests, ...)`
 
 - [ ] **Step 5: コミット**
 

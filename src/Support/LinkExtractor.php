@@ -42,7 +42,20 @@ final class LinkExtractor {
 		// Capture the whole anchor so the inner markup is available for labelling.
 		$pattern = '/<a\b([^>]*?)>(.*?)<\/a\s*>/is';
 
-		if ( ! preg_match_all( $pattern, $html, $matches, PREG_SET_ORDER ) ) {
+		$matchCount = preg_match_all( $pattern, $html, $matches, PREG_SET_ORDER );
+
+		// preg_match_all() returns false (PCRE backtrack/recursion limit hit,
+		// or another engine error) as well as 0 (genuinely no matches). Those
+		// are not the same situation: false means extraction was skipped, not
+		// that the content has no affiliate links, so it must be logged
+		// rather than silently treated like a normal "nothing found" result.
+		if ( false === $matchCount ) {
+			error_log( '[rakuten-link-tracker] LinkExtractor: preg_match_all() failed; link extraction skipped for this content.' );
+
+			return array();
+		}
+
+		if ( 0 === $matchCount ) {
 			return array();
 		}
 
@@ -140,6 +153,15 @@ final class LinkExtractor {
 
 		$cut = substr( $text, 0, self::MAX_LABEL_BYTES );
 
-		return (string) preg_replace( '/[\x80-\xBF]*$|[\xC0-\xFF]$/', '', $cut );
+		// A hard byte cut can land inside a multibyte sequence, leaving a lead
+		// byte with too few (or zero) continuation bytes trailing it. That
+		// trailing fragment is not valid UTF-8 on its own, so the whole
+		// incomplete sequence — lead byte and whatever continuation bytes it
+		// kept — must be dropped, not just the continuation bytes.
+		return (string) preg_replace(
+			'/(?:[\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$/',
+			'',
+			$cut
+		);
 	}
 }
