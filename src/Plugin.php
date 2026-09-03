@@ -47,5 +47,6 @@ final class Plugin {
 		( new \RLT\Frontend\RedirectHandler() )->register();
 		( new \RLT\Frontend\BeaconController() )->register();
 		( new \RLT\Api\StatsController() )->register();
+		( new \RLT\Api\ExportController() )->register();
 	}
 }
