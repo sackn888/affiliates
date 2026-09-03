@@ -111,7 +111,7 @@ final class SettingsTest extends WP_UnitTestCase {
 	public function test_a_host_entered_as_a_url_still_matches_the_extractor(): void {
 		Settings::update( array( 'hosts' => array( 'https://hb.afl.rakuten.co.jp/' ) ) );
 
-		$extractor = new \RLT\Support\LinkExtractor( Settings::hosts(), Settings::shortBase() );
+		$extractor = new \RLT\Support\LinkExtractor( Settings::hosts(), Settings::shortBases() );
 		$links     = $extractor->extract( '<a href="https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x">ホテル</a>' );
 
 		// 設定とエクストラクタの突き合わせが崩れていると、ここで 0 件になる。
@@ -141,6 +141,49 @@ final class SettingsTest extends WP_UnitTestCase {
 		Settings::update( array( 'prefix' => 'out' ) );
 
 		$this->assertSame( 'out', Settings::prefix() );
+	}
+
+	public function test_changing_the_prefix_remembers_the_old_one(): void {
+		// The prefix is user-configurable, and short URLs already published
+		// under the old prefix must keep resolving after it changes.
+		Settings::update( array( 'prefix' => 'out' ) );
+
+		$this->assertSame( 'out', Settings::prefix() );
+		$this->assertContains( 'go', Settings::pastPrefixes() );
+		$this->assertSame( array( 'out', 'go' ), Settings::allPrefixes() );
+	}
+
+	public function test_changing_the_prefix_back_and_forth_never_lists_the_current_prefix_as_past(): void {
+		Settings::update( array( 'prefix' => 'out' ) );
+		Settings::update( array( 'prefix' => 'go' ) );
+
+		$this->assertSame( 'go', Settings::prefix() );
+		$this->assertNotContains( 'go', Settings::pastPrefixes() );
+		$this->assertContains( 'out', Settings::pastPrefixes() );
+	}
+
+	public function test_saving_without_changing_the_prefix_does_not_grow_past_prefixes(): void {
+		Settings::update( array( 'prefix' => 'out' ) );
+		Settings::update( array( 'retention_days' => 30 ) );
+
+		$this->assertSame( array( 'go' ), Settings::pastPrefixes() );
+	}
+
+	public function test_past_prefixes_are_capped_at_ten_entries(): void {
+		foreach ( range( 1, 12 ) as $i ) {
+			Settings::update( array( 'prefix' => 'prefix' . $i ) );
+		}
+
+		$this->assertCount( 10, Settings::pastPrefixes() );
+	}
+
+	public function test_short_bases_include_every_prefix(): void {
+		Settings::update( array( 'prefix' => 'out' ) );
+
+		$bases = Settings::shortBases();
+
+		$this->assertContains( home_url( '/out/' ), $bases );
+		$this->assertContains( home_url( '/go/' ), $bases );
 	}
 
 	public function test_salt_survives_a_concurrent_creation(): void {

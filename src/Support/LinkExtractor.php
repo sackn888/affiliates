@@ -20,15 +20,21 @@ final class LinkExtractor {
 	/** @var string[] */
 	private array $hosts;
 
-	private string $shortBase;
+	/** @var string[] */
+	private array $shortBases;
 
 	/**
-	 * @param string[] $hosts     Hostnames to treat as affiliate links.
-	 * @param string   $shortBase Absolute base of already-shortened URLs, e.g. https://example.com/go/
+	 * @param string[] $hosts      Hostnames to treat as affiliate links.
+	 * @param string[] $shortBases Absolute bases of already-shortened URLs, e.g.
+	 *                             https://example.com/go/. Plural because the short-URL
+	 *                             prefix is configurable: a site that changed it still has
+	 *                             posts holding short URLs built with an older prefix, and
+	 *                             those must be recognised as "already shortened" too, or
+	 *                             they would be re-processed into a double-shortened link.
 	 */
-	public function __construct( array $hosts, string $shortBase ) {
-		$this->hosts     = array_values( array_filter( array_map( 'strtolower', array_map( 'trim', $hosts ) ) ) );
-		$this->shortBase = $shortBase;
+	public function __construct( array $hosts, array $shortBases ) {
+		$this->hosts      = array_values( array_filter( array_map( 'strtolower', array_map( 'trim', $hosts ) ) ) );
+		$this->shortBases = array_values( $shortBases );
 	}
 
 	/**
@@ -141,8 +147,10 @@ final class LinkExtractor {
 	 * been shortened.
 	 */
 	private function isTrackable( string $url ): bool {
-		if ( str_starts_with( $url, $this->shortBase ) ) {
-			return false;
+		foreach ( $this->shortBases as $shortBase ) {
+			if ( str_starts_with( $url, $shortBase ) ) {
+				return false;
+			}
 		}
 
 		$host = strtolower( (string) parse_url( $url, PHP_URL_HOST ) );

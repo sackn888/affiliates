@@ -44,5 +44,6 @@ final class Plugin {
 		add_action( 'plugins_loaded', array( Installer::class, 'maybeUpgrade' ) );
 
 		( new \RLT\Frontend\PostSync() )->register();
+		( new \RLT\Frontend\RedirectHandler() )->register();
 	}
 }

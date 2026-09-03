@@ -154,6 +154,27 @@ final class LinkRepositoryTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( Settings::shortUrl( $link['code'] ), $this->repo->restoreMap() );
 	}
 
+	public function test_restore_map_contains_both_old_and_new_prefix_keys_after_a_prefix_change(): void {
+		$link = $this->repo->findOrCreate( 'https://hb.afl.rakuten.co.jp/hgc/a', 10, 'A' );
+
+		// A link's short URL may have been created and published under the
+		// old prefix; the site owner then changes the prefix in settings.
+		// restoreMap() must still be able to turn that old-prefix short URL
+		// back into the original affiliate URL, or the "restore" feature
+		// silently breaks for every link created before the change.
+		Settings::update( array( 'prefix' => 'out' ) );
+
+		$map = $this->repo->restoreMap();
+
+		$oldKey = home_url( '/go/' . $link['code'] );
+		$newKey = Settings::shortUrl( $link['code'] );
+
+		$this->assertArrayHasKey( $oldKey, $map );
+		$this->assertArrayHasKey( $newKey, $map );
+		$this->assertSame( 'https://hb.afl.rakuten.co.jp/hgc/a', $map[ $oldKey ] );
+		$this->assertSame( 'https://hb.afl.rakuten.co.jp/hgc/a', $map[ $newKey ] );
+	}
+
 	public function test_post_ids_with_links(): void {
 		$this->repo->findOrCreate( 'https://hb.afl.rakuten.co.jp/hgc/a', 10, 'A' );
 		$this->repo->findOrCreate( 'https://hb.afl.rakuten.co.jp/hgc/b', 10, 'B' );

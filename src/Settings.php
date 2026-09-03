@@ -62,6 +62,7 @@ final class Settings {
 			'retention_days'      => 365,
 			'click_dedup_seconds' => 5,
 			'view_dedup_seconds'  => 1800,
+			'past_prefixes'       => array(),
 		);
 	}
 
@@ -101,11 +102,57 @@ final class Settings {
 			$stored = array();
 		}
 
-		update_option( self::OPTION, self::sanitise( array_merge( self::defaults(), $stored, $values ) ) );
+		$sanitised = self::sanitise( array_merge( self::defaults(), $stored, $values ) );
+
+		$oldPrefix = isset( $stored['prefix'] ) ? (string) $stored['prefix'] : self::defaults()['prefix'];
+
+		// A changed prefix must not break links already published: every short
+		// URL built with the old prefix stays embedded in post content, possibly
+		// forever, once it has been shared outside the site's own control. Remember
+		// the old prefix so RedirectHandler and LinkRepository can keep it resolvable.
+		if ( $oldPrefix !== $sanitised['prefix'] ) {
+			$past   = $sanitised['past_prefixes'];
+			$past[] = $oldPrefix;
+			$past   = array_values( array_unique( $past ) );
+			// Never let the current prefix also sit in the "past" list.
+			$past = array_values( array_diff( $past, array( $sanitised['prefix'] ) ) );
+
+			// Cap the history: an option rewritten many times over the site's
+			// lifetime shouldn't grow without bound. Keep the most recent ones,
+			// since those are the most likely to still be embedded in content.
+			if ( count( $past ) > 10 ) {
+				$past = array_slice( $past, -10 );
+			}
+
+			$sanitised['past_prefixes'] = $past;
+		}
+
+		update_option( self::OPTION, $sanitised );
 	}
 
 	public static function prefix(): string {
 		return (string) self::get( 'prefix' );
+	}
+
+	/**
+	 * Prefixes the site used before the current one, most-recently-replaced
+	 * last is not guaranteed — order only reflects insertion, deduplicated.
+	 *
+	 * @return string[]
+	 */
+	public static function pastPrefixes(): array {
+		return (array) self::get( 'past_prefixes' );
+	}
+
+	/**
+	 * Every prefix that must still resolve: the current one first, then every
+	 * past one. Used to register a rewrite rule per prefix and to build a
+	 * restore map that matches whichever prefix a post's content still holds.
+	 *
+	 * @return string[]
+	 */
+	public static function allPrefixes(): array {
+		return array_merge( array( self::prefix() ), self::pastPrefixes() );
 	}
 
 	/**
@@ -115,6 +162,22 @@ final class Settings {
 	 */
 	public static function shortBase(): string {
 		return home_url( '/' . self::prefix() . '/' );
+	}
+
+	/**
+	 * Absolute bases for every prefix that must still resolve (current plus
+	 * past), so callers such as LinkExtractor can recognise an already
+	 * shortened URL no matter which prefix it was built with.
+	 *
+	 * @return string[]
+	 */
+	public static function shortBases(): array {
+		return array_map(
+			static function ( string $prefix ): string {
+				return home_url( '/' . $prefix . '/' );
+			},
+			self::allPrefixes()
+		);
 	}
 
 	public static function shortUrl( string $code ): string {
@@ -195,6 +258,27 @@ final class Settings {
 			$unknown = $defaults['unknown_code'];
 		}
 
+		// Sanitised the same way as the current prefix, so a past prefix is
+		// guaranteed to still form a valid rewrite rule segment. Never keep an
+		// entry equal to the current prefix -- update() is what appends here,
+		// but sanitise() is the single place that must hold this invariant so
+		// it also protects a directly-written option value.
+		$pastPrefixes = array();
+		foreach ( (array) ( $values['past_prefixes'] ?? array() ) as $past ) {
+			$past = sanitize_title( (string) $past );
+
+			if ( '' === $past || in_array( $past, self::RESERVED_PREFIXES, true ) || $past === $prefix ) {
+				continue;
+			}
+
+			if ( ! in_array( $past, $pastPrefixes, true ) ) {
+				$pastPrefixes[] = $past;
+			}
+		}
+		if ( count( $pastPrefixes ) > 10 ) {
+			$pastPrefixes = array_slice( $pastPrefixes, -10 );
+		}
+
 		return array(
 			'prefix'              => $prefix,
 			'hosts'               => $hosts,
@@ -203,6 +287,7 @@ final class Settings {
 			'retention_days'      => max( 0, (int) ( $values['retention_days'] ?? $defaults['retention_days'] ) ),
 			'click_dedup_seconds' => max( 0, (int) ( $values['click_dedup_seconds'] ?? $defaults['click_dedup_seconds'] ) ),
 			'view_dedup_seconds'  => max( 0, (int) ( $values['view_dedup_seconds'] ?? $defaults['view_dedup_seconds'] ) ),
+			'past_prefixes'       => $pastPrefixes,
 		);
 	}
 

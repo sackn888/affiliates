@@ -221,14 +221,27 @@ final class LinkRepository {
 	 *
 	 * Archived links must be included: their short URLs may still sit in post content.
 	 *
+	 * A key is emitted for every prefix the site has ever used (current plus
+	 * past, see Settings::allPrefixes()), all pointing at the same target URL.
+	 * The prefix is configurable and may have changed since a link's short URL
+	 * was embedded in a post; if this only emitted the current prefix, restoring
+	 * a post that still holds an old-prefix short URL would silently do nothing.
+	 *
 	 * @return array<string, string>
 	 */
 	public function restoreMap(): array {
 		$rows = $this->db->get_results( 'SELECT code, target_url FROM ' . Installer::linksTable(), ARRAY_A ) ?: array();
 
+		$prefixes = Settings::allPrefixes();
+
 		$map = array();
 		foreach ( $rows as $row ) {
-			$map[ Settings::shortUrl( (string) $row['code'] ) ] = (string) $row['target_url'];
+			$code   = (string) $row['code'];
+			$target = (string) $row['target_url'];
+
+			foreach ( $prefixes as $prefix ) {
+				$map[ home_url( '/' . $prefix . '/' . $code ) ] = $target;
+			}
 		}
 
 		return $map;

@@ -11,7 +11,7 @@ final class LinkExtractorTest extends TestCase {
 	private const SHORT_BASE = 'https://example.com/go/';
 
 	private function extractor(): LinkExtractor {
-		return new LinkExtractor( self::HOSTS, self::SHORT_BASE );
+		return new LinkExtractor( self::HOSTS, array( self::SHORT_BASE ) );
 	}
 
 	public function test_extracts_a_simple_affiliate_link(): void {
@@ -70,6 +70,17 @@ final class LinkExtractorTest extends TestCase {
 		$html = '<a href="https://example.com/go/abc123">変換済み</a>';
 
 		$this->assertSame( array(), $this->extractor()->extract( $html ) );
+	}
+
+	public function test_skips_urls_shortened_under_a_former_prefix(): void {
+		// The short-URL prefix is configurable and may have changed since this
+		// post was last saved. A URL already shortened under an old prefix
+		// must still be recognised as "already shortened", or it would be
+		// double-shortened on the next save.
+		$extractor = new LinkExtractor( self::HOSTS, array( 'https://example.com/out/', 'https://example.com/go/' ) );
+		$html      = '<a href="https://example.com/go/abc123">古いプレフィックス</a>';
+
+		$this->assertSame( array(), $extractor->extract( $html ) );
 	}
 
 	public function test_is_idempotent_on_mixed_content(): void {
@@ -198,7 +209,7 @@ final class LinkExtractorTest extends TestCase {
 	}
 
 	public function test_matches_configured_extra_host(): void {
-		$extractor = new LinkExtractor( array( 'example-asp.jp' ), self::SHORT_BASE );
+		$extractor = new LinkExtractor( array( 'example-asp.jp' ), array( self::SHORT_BASE ) );
 		$html      = '<a href="https://example-asp.jp/click/1">追加ホスト</a>';
 
 		$links = $extractor->extract( $html );

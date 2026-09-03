@@ -70,7 +70,12 @@ final class PostSync {
 
 		try {
 			$content   = (string) $post->post_content;
-			$extractor = new LinkExtractor( Settings::hosts(), Settings::shortBase() );
+			// shortBases(), not shortBase(): if the prefix was changed after this
+			// post was last saved, its content can still hold a short URL built
+			// with the old prefix. Only checking the current prefix here would
+			// make extract() treat that already-shortened URL as a fresh
+			// affiliate link and double-shorten it.
+			$extractor = new LinkExtractor( Settings::hosts(), Settings::shortBases() );
 			$found     = $extractor->extract( $content );
 			$hrefs     = $extractor->extractHrefs( $content );
 
