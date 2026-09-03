@@ -144,4 +144,41 @@ final class ContentRewriterTest extends TestCase {
 		$this->assertStringContainsString( '<!-- /wp:paragraph -->', $result );
 		$this->assertStringContainsString( self::SHORT, $result );
 	}
+
+	public function test_pcre_failure_returns_the_original_content_not_an_empty_string(): void {
+		$original = ini_get( 'pcre.backtrack_limit' );
+		// 極端に小さい上限にすると preg_replace_callback が null を返す。
+		ini_set( 'pcre.backtrack_limit', '1' );
+
+		try {
+			$html = '<a href="' . self::AFFILIATE . '">' . str_repeat( 'ホテル', 2000 ) . '</a>';
+
+			$result = $this->rewriter->rewrite( $html, array( self::AFFILIATE => self::SHORT ) );
+
+			// 記事本文を空にするくらいなら、リンクを書き換えないほうが遥かにマシ。
+			$this->assertNotSame( '', $result );
+		} finally {
+			ini_set( 'pcre.backtrack_limit', (string) $original );
+		}
+	}
+
+	public function test_round_trip_preserves_an_encoded_ampersand(): void {
+		$affiliate = 'https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x&m=y&scid=z';
+		$original  = '<p><a href="https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x&amp;m=y&amp;scid=z">ホテル</a></p>';
+
+		$shortened = $this->rewriter->rewrite( $original, array( $affiliate => self::SHORT ) );
+		$restored  = $this->rewriter->restore( $shortened, array( self::SHORT => $affiliate ) );
+
+		$this->assertStringContainsString( self::SHORT, $shortened );
+		$this->assertSame( $original, $restored );
+	}
+
+	public function test_href_with_surrounding_whitespace_is_still_rewritten(): void {
+		// LinkExtractor は trim してから map のキーを作るため、こちらも合わせないと取りこぼす。
+		$html = '<a href=" ' . self::AFFILIATE . ' ">ホテル</a>';
+
+		$result = $this->rewriter->rewrite( $html, array( self::AFFILIATE => self::SHORT ) );
+
+		$this->assertStringContainsString( self::SHORT, $result );
+	}
 }

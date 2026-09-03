@@ -1620,6 +1620,43 @@ final class ContentRewriterTest extends TestCase {
 		$this->assertStringContainsString( '<!-- /wp:paragraph -->', $result );
 		$this->assertStringContainsString( self::SHORT, $result );
 	}
+
+	public function test_pcre_failure_returns_the_original_content_not_an_empty_string(): void {
+		$original = ini_get( 'pcre.backtrack_limit' );
+		// 極端に小さい上限にすると preg_replace_callback が null を返す。
+		ini_set( 'pcre.backtrack_limit', '1' );
+
+		try {
+			$html = '<a href="' . self::AFFILIATE . '">' . str_repeat( 'ホテル', 2000 ) . '</a>';
+
+			$result = $this->rewriter->rewrite( $html, array( self::AFFILIATE => self::SHORT ) );
+
+			// 記事本文を空にするくらいなら、リンクを書き換えないほうが遥かにマシ。
+			$this->assertNotSame( '', $result );
+		} finally {
+			ini_set( 'pcre.backtrack_limit', (string) $original );
+		}
+	}
+
+	public function test_round_trip_preserves_an_encoded_ampersand(): void {
+		$affiliate = 'https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x&m=y&scid=z';
+		$original  = '<p><a href="https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x&amp;m=y&amp;scid=z">ホテル</a></p>';
+
+		$shortened = $this->rewriter->rewrite( $original, array( $affiliate => self::SHORT ) );
+		$restored  = $this->rewriter->restore( $shortened, array( self::SHORT => $affiliate ) );
+
+		$this->assertStringContainsString( self::SHORT, $shortened );
+		$this->assertSame( $original, $restored );
+	}
+
+	public function test_href_with_surrounding_whitespace_is_still_rewritten(): void {
+		// LinkExtractor は trim してから map のキーを作るため、こちらも合わせないと取りこぼす。
+		$html = '<a href=" ' . self::AFFILIATE . ' ">ホテル</a>';
+
+		$result = $this->rewriter->rewrite( $html, array( self::AFFILIATE => self::SHORT ) );
+
+		$this->assertStringContainsString( self::SHORT, $result );
+	}
 }
 ```
 
@@ -1675,23 +1712,52 @@ final class ContentRewriter {
 			return $html;
 		}
 
-		return (string) preg_replace_callback(
+		$result = preg_replace_callback(
 			'/(<a\b[^>]*?\bhref\s*=\s*)("([^"]*)"|\'([^\']*)\')/i',
 			static function ( array $m ) use ( $map ): string {
 				$quote = str_starts_with( $m[2], '"' ) ? '"' : "'";
 				$value = '"' === $quote ? $m[3] : $m[4];
 
-				// WordPress may store & as &amp;. Compare on the decoded form.
-				$decoded = html_entity_decode( $value, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				// WordPress may store & as &amp;, and a value may carry
+				// incidental surrounding whitespace (a common paste
+				// artifact). Trim before decoding so the lookup key here
+				// matches exactly how LinkExtractor::hrefFrom() built the
+				// map's keys; only the lookup is trimmed, the rebuilt
+				// attribute below still uses the untouched $value.
+				$decoded = html_entity_decode( trim( $value ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 
 				if ( ! isset( $map[ $decoded ] ) ) {
 					return $m[0];
 				}
 
-				return $m[1] . $quote . $map[ $decoded ] . $quote;
+				// The replacement can itself contain characters such as &
+				// that must be re-encoded for the attribute to stay valid
+				// HTML: restore() writes back decoded Rakuten URLs, which
+				// routinely carry several query parameters joined by &, and
+				// WordPress expects those stored as &amp;. Encoding is a
+				// no-op for the short URLs used in the rewrite direction,
+				// so this is safe in both directions.
+				$replacement = htmlspecialchars( $map[ $decoded ], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+				return $m[1] . $quote . $replacement . $quote;
 			},
 			$html
 		);
+
+		if ( null === $result ) {
+			// preg_replace_callback() returns null when PCRE hits its
+			// backtrack/recursion limit (or another engine error). The
+			// caller writes this return value straight into post_content,
+			// so returning '' here would replace the user's entire
+			// published article with an empty string. Returning $html
+			// unrewritten only costs some tracking data on this save,
+			// which is by far the safer failure mode.
+			error_log( '[rakuten-link-tracker] ContentRewriter: preg_replace_callback() failed; content left unrewritten.' );
+
+			return $html;
+		}
+
+		return $result;
 	}
 }
 ```
@@ -1702,7 +1768,18 @@ final class ContentRewriter {
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter ContentRewriterTest
 ```
 
-Expected: PASS — `OK (14 tests, ...)`
+Expected: PASS — `OK (17 tests, ...)`
+
+`swap()` returning `''` on a PCRE backtrack/recursion-limit failure would empty the
+caller's `post_content`, and a raw `&` written back into `href` during `restore()`
+breaks the round trip against WordPress's stored `&amp;` — so `swap()` captures the
+`preg_replace_callback()` result, falls back to the original `$html` (with an
+`error_log()` line) when it is `null`, and encodes each replacement with
+`htmlspecialchars()` before writing it back. The lookup key is also `trim()`med
+before decoding so it matches `LinkExtractor::hrefFrom()` exactly. Three extra
+tests cover this: `test_pcre_failure_returns_the_original_content_not_an_empty_string`,
+`test_round_trip_preserves_an_encoded_ampersand`, and
+`test_href_with_surrounding_whitespace_is_still_rewritten`.
 
 - [ ] **Step 5: コミット**
 
