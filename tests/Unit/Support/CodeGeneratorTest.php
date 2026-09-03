@@ -55,12 +55,32 @@ final class CodeGeneratorTest extends TestCase {
 
 	public static function invalidCodes(): array {
 		return array(
-			'empty'         => array( '' ),
-			'too short'     => array( 'abc' ),
-			'too long'      => array( 'abcdefghijklmnopq' ),
-			'has slash'     => array( 'abc/de' ),
-			'has uppercase' => array( 'ABCDEF' ),
-			'has dot'       => array( 'abcd.f' ),
+			'empty'             => array( '' ),
+			'too short'         => array( 'abc' ),
+			'too long'          => array( 'abcdefghijklmnopq' ),
+			'has slash'         => array( 'abc/de' ),
+			'has uppercase'     => array( 'ABCDEF' ),
+			'has dot'           => array( 'abcd.f' ),
+			'trailing newline'  => array( "abcdef\n" ),
+			'leading newline'   => array( "\nabcdef" ),
+			'trailing space'    => array( 'abcdef ' ),
+			'embedded newline'  => array( "abc\ndef" ),
+			'null byte'         => array( "abcdef\0" ),
+			'too long by one'   => array( 'abcdefghjkmnpqrs2' ),
+		);
+	}
+
+	/**
+	 * @dataProvider boundaryCodes
+	 */
+	public function test_is_valid_accepts_the_length_boundaries( string $code ): void {
+		$this->assertTrue( CodeGenerator::isValid( $code ) );
+	}
+
+	public static function boundaryCodes(): array {
+		return array(
+			'minimum length' => array( 'abcd' ),
+			'maximum length' => array( 'abcdefghjkmnpqrs' ),
 		);
 	}
 }

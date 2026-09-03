@@ -486,12 +486,32 @@ final class CodeGeneratorTest extends TestCase {
 
 	public static function invalidCodes(): array {
 		return array(
-			'empty'         => array( '' ),
-			'too short'     => array( 'abc' ),
-			'too long'      => array( 'abcdefghijklmnopq' ),
-			'has slash'     => array( 'abc/de' ),
-			'has uppercase' => array( 'ABCDEF' ),
-			'has dot'       => array( 'abcd.f' ),
+			'empty'             => array( '' ),
+			'too short'         => array( 'abc' ),
+			'too long'          => array( 'abcdefghijklmnopq' ),
+			'has slash'         => array( 'abc/de' ),
+			'has uppercase'     => array( 'ABCDEF' ),
+			'has dot'           => array( 'abcd.f' ),
+			'trailing newline'  => array( "abcdef\n" ),
+			'leading newline'   => array( "\nabcdef" ),
+			'trailing space'    => array( 'abcdef ' ),
+			'embedded newline'  => array( "abc\ndef" ),
+			'null byte'         => array( "abcdef\0" ),
+			'too long by one'   => array( 'abcdefghjkmnpqrs2' ),
+		);
+	}
+
+	/**
+	 * @dataProvider boundaryCodes
+	 */
+	public function test_is_valid_accepts_the_length_boundaries( string $code ): void {
+		$this->assertTrue( CodeGenerator::isValid( $code ) );
+	}
+
+	public static function boundaryCodes(): array {
+		return array(
+			'minimum length' => array( 'abcd' ),
+			'maximum length' => array( 'abcdefghjkmnpqrs' ),
 		);
 	}
 }
@@ -533,8 +553,11 @@ final class CodeGenerator {
 	/**
 	 * Codes accepted by the rewrite rule. Kept wider than LENGTH so codes issued
 	 * by a future version with a different length still resolve.
+	 *
+	 * Use \A and \z instead of ^ and $ to avoid matching trailing newlines,
+	 * since $ in PHP regex matches before a trailing newline even without the 'm' modifier.
 	 */
-	private const VALID_PATTERN = '/^[' . self::ALPHABET . ']{4,16}$/';
+	private const VALID_PATTERN = '/\A[' . self::ALPHABET . ']{4,16}\z/';
 
 	public static function generate(): string {
 		$max  = strlen( self::ALPHABET ) - 1;
@@ -559,7 +582,7 @@ final class CodeGenerator {
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter CodeGeneratorTest
 ```
 
-Expected: PASS — `OK (11 tests, ...)`
+Expected: PASS — `OK (19 tests, ...)`
 
 - [ ] **Step 5: コミット**
 

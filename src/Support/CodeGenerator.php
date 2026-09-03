@@ -21,8 +21,11 @@ final class CodeGenerator {
 	/**
 	 * Codes accepted by the rewrite rule. Kept wider than LENGTH so codes issued
 	 * by a future version with a different length still resolve.
+	 *
+	 * Use \A and \z instead of ^ and $ to avoid matching trailing newlines,
+	 * since $ in PHP regex matches before a trailing newline even without the 'm' modifier.
 	 */
-	private const VALID_PATTERN = '/^[' . self::ALPHABET . ']{4,16}$/';
+	private const VALID_PATTERN = '/\A[' . self::ALPHABET . ']{4,16}\z/';
 
 	public static function generate(): string {
 		$max  = strlen( self::ALPHABET ) - 1;
