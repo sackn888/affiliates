@@ -72,6 +72,7 @@ final class PostSync {
 			$content   = (string) $post->post_content;
 			$extractor = new LinkExtractor( Settings::hosts(), Settings::shortBase() );
 			$found     = $extractor->extract( $content );
+			$hrefs     = $extractor->extractHrefs( $content );
 
 			$map     = array();
 			$keepIds = array();
@@ -88,25 +89,26 @@ final class PostSync {
 			}
 
 			// An already-active link whose short URL is still sitting in the
-			// content must also be kept, even though LinkExtractor (which only
-			// looks for un-shortened affiliate hrefs) will not report it.
+			// content must also be kept, even though LinkExtractor::extract()
+			// (which only looks for un-shortened affiliate hrefs) will not
+			// report it. This is the ordinary case on every re-save of a post
+			// that was already converted: the content already holds short
+			// URLs, extract() deliberately ignores them, so $found -- and
+			// therefore $keepIds -- would otherwise be built as if every link
+			// on the post had been removed, and archiveOthers() below would
+			// archive all of them on a plain "Update" click.
 			//
-			// This matters for more than a plain resave: WordPress fires
-			// save_post twice for a post created directly with post_status =
-			// 'publish' -- once from wp_insert_post() itself and again from
-			// wp_publish_post(), which runs on the new-to-publish transition.
-			// The first firing here already rewrites the content and clears
-			// the post cache, so by the second firing get_post() returns the
-			// already-shortened content. Without this check that second call
-			// would see no affiliate hrefs, compute an empty keep list, and
-			// have archiveOthers() immediately archive the link this same
-			// save just created.
+			// The check is scoped to actual <a href> values (via
+			// extractHrefs()), not a raw substring search over the whole
+			// document: a short URL sitting in plain text, an HTML comment,
+			// an <img src>, or a code sample is not a live link and must not
+			// keep an actually-removed link active.
 			foreach ( $this->links->findByPost( $postId, true ) as $active ) {
 				if ( in_array( $active['id'], $keepIds, true ) ) {
 					continue;
 				}
 
-				if ( str_contains( $content, Settings::shortUrl( $active['code'] ) ) ) {
+				if ( in_array( Settings::shortUrl( $active['code'] ), $hrefs, true ) ) {
 					$keepIds[] = $active['id'];
 				}
 			}
@@ -195,11 +197,20 @@ final class PostSync {
 	private function writeContent( int $postId, string $content ): void {
 		global $wpdb;
 
+		// post_modified / post_modified_gmt must be bumped here even though
+		// wp_update_post() is deliberately avoided: a page cache or CDN keyed
+		// on the modified time would otherwise keep serving the pre-rewrite
+		// content, so the links visitors actually click stay the untracked
+		// originals until something else touches the post.
 		$wpdb->update(
 			$wpdb->posts,
-			array( 'post_content' => $content ),
+			array(
+				'post_content'      => $content,
+				'post_modified'     => current_time( 'mysql' ),
+				'post_modified_gmt' => current_time( 'mysql', true ),
+			),
 			array( 'ID' => $postId ),
-			array( '%s' ),
+			array( '%s', '%s', '%s' ),
 			array( '%d' )
 		);
 

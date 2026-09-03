@@ -14,21 +14,22 @@ final class PostSyncTest extends WP_UnitTestCase {
 	private PostSync $sync;
 	private LinkRepository $links;
 
+	/**
+	 * The plugin itself already constructs a PostSync and hooks it to
+	 * save_post (via Plugin::boot() on muplugins_loaded in
+	 * bootstrap-integration.php) for the whole test run. Registering a
+	 * second, locally-constructed instance here would make every save run
+	 * syncPost() twice through two separate objects -- which is what used to
+	 * make this class look like it exercised a WordPress double-save quirk,
+	 * when it was really just running its own logic twice. So this instance
+	 * is built (to call syncPost()/restorePost()/syncedPostTypes() directly)
+	 * but never registered; the save_post hook path is left to the plugin's
+	 * own already-registered instance.
+	 */
 	protected function setUp(): void {
 		parent::setUp();
 		$this->links = new LinkRepository();
 		$this->sync  = new PostSync( $this->links );
-		$this->sync->register();
-	}
-
-	/**
-	 * PostSync::register() adds a process-wide `save_post` action. Left in
-	 * place it would keep firing for every post any later test class saves,
-	 * so it must be removed again once this test is done with it.
-	 */
-	protected function tearDown(): void {
-		remove_action( 'save_post', array( $this->sync, 'onSavePost' ), 20 );
-		parent::tearDown();
 	}
 
 	private function createPostWithLink( string $content ): int {
@@ -179,5 +180,79 @@ final class PostSyncTest extends WP_UnitTestCase {
 		$codeB = $this->links->findByPost( $b )[0]['code'];
 
 		$this->assertNotSame( $codeA, $codeB );
+	}
+
+	public function test_resaving_an_unchanged_post_does_not_archive_its_links(): void {
+		$postId = $this->createPostWithLink( '<a href="' . self::AFFILIATE . '">ホテル</a>' );
+
+		$this->assertCount( 1, $this->links->findByPost( $postId ) );
+
+		// 編集者が「更新」をもう一度押しただけ。ここでリンクがアーカイブされると
+		// PVビーコンが止まり、以降その記事の計測が無言で死ぬ。
+		wp_update_post( array( 'ID' => $postId ) );
+
+		$this->assertCount( 1, $this->links->findByPost( $postId ), 'Re-saving archived the post links.' );
+	}
+
+	public function test_repeated_saves_keep_the_same_code_and_content(): void {
+		$postId = $this->createPostWithLink( '<a href="' . self::AFFILIATE . '">ホテル</a>' );
+
+		$code    = $this->links->findByPost( $postId )[0]['code'];
+		$content = get_post_field( 'post_content', $postId );
+
+		for ( $i = 0; $i < 3; $i++ ) {
+			wp_update_post( array( 'ID' => $postId ) );
+		}
+
+		$links = $this->links->findByPost( $postId );
+
+		$this->assertCount( 1, $links );
+		$this->assertSame( $code, $links[0]['code'] );
+		$this->assertSame( $content, get_post_field( 'post_content', $postId ) );
+	}
+
+	public function test_a_short_url_outside_an_anchor_does_not_keep_a_removed_link_alive(): void {
+		$postId = $this->createPostWithLink( '<a href="' . self::AFFILIATE . '">ホテル</a>' );
+		$linkId = $this->links->findByPost( $postId )[0]['id'];
+		$short  = \RLT\Settings::shortUrl( $this->links->findById( $linkId )['code'] );
+
+		// アンカーは消したが、短縮URLの文字列だけが本文に残っている状況。
+		wp_update_post(
+			array(
+				'ID'           => $postId,
+				'post_content' => '<p>以前は ' . esc_html( $short ) . ' を紹介していました。</p>',
+			)
+		);
+
+		$this->assertSame( array(), $this->links->findByPost( $postId ), 'A bare short URL kept a removed link active.' );
+		$this->assertSame( 0, $this->links->findById( $linkId )['status'] );
+	}
+
+	public function test_writing_content_bumps_the_modified_time(): void {
+		$postId = self::factory()->post->create(
+			array(
+				'post_content'      => '<p>まだリンクなし</p>',
+				'post_status'       => 'publish',
+				'post_modified'     => '2020-01-01 00:00:00',
+				'post_modified_gmt' => '2020-01-01 00:00:00',
+			)
+		);
+
+		global $wpdb;
+		$wpdb->update(
+			$wpdb->posts,
+			array(
+				'post_content'      => '<a href="' . self::AFFILIATE . '">ホテル</a>',
+				'post_modified'     => '2020-01-01 00:00:00',
+				'post_modified_gmt' => '2020-01-01 00:00:00',
+			),
+			array( 'ID' => $postId )
+		);
+		clean_post_cache( $postId );
+
+		$this->assertTrue( $this->sync->syncPost( $postId ) );
+
+		// 更新時刻が古いままだと、キャッシュが書き換え前の本文を配り続ける。
+		$this->assertNotSame( '2020-01-01 00:00:00', get_post_field( 'post_modified_gmt', $postId ) );
 	}
 }

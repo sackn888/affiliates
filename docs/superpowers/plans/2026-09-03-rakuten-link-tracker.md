@@ -1042,6 +1042,7 @@ git commit -m "feat: IPを保存しない訪問者ハッシュを追加"
 - Produces:
   - `RLT\Support\LinkExtractor::__construct(array $hosts, string $shortBase)` — `$hosts` は `['hb.afl.rakuten.co.jp', ...]`、`$shortBase` は `https://example.com/go/`
   - `RLT\Support\LinkExtractor::extract(string $html): array` — `array<int, array{url: string, label: string}>` を、本文中の初出順・URLでユニーク化して返す
+  - `RLT\Support\LinkExtractor::extractHrefs(string $html): array` — `string[]`。本文中のすべての `<a href>` の値をデコード済みで文書順に返す（ホストや既変換の絞り込みはしない）。PostSync が「本文にまだ短縮URLが残っているか」を href スコープで判定するために使う
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -1255,6 +1256,23 @@ final class LinkExtractorTest extends TestCase {
 
 		$this->assertCount( 1, $links );
 	}
+
+	public function test_extract_hrefs_returns_every_anchor_href_decoded(): void {
+		$html = '<a href="https://hb.afl.rakuten.co.jp/hgc/a/?pc=x&amp;m=y">A</a>'
+			. '<a href=\'https://example.com/go/abc123\'>B</a>'
+			. '<img src="https://hb.afl.rakuten.co.jp/hsc/a/?me_id=1">';
+
+		$hrefs = $this->extractor()->extractHrefs( $html );
+
+		$this->assertSame(
+			array( 'https://hb.afl.rakuten.co.jp/hgc/a/?pc=x&m=y', 'https://example.com/go/abc123' ),
+			$hrefs
+		);
+	}
+
+	public function test_extract_hrefs_returns_an_empty_array_for_content_without_links(): void {
+		$this->assertSame( array(), $this->extractor()->extractHrefs( '<p>本文だけ</p>' ) );
+	}
 }
 ```
 
@@ -1355,6 +1373,47 @@ final class LinkExtractor {
 	}
 
 	/**
+	 * Every href value in the content, decoded, in document order.
+	 *
+	 * PostSync needs this to tell "this link is still in the post, already
+	 * shortened" apart from "this link was deleted from the post".
+	 *
+	 * @return string[]
+	 */
+	public function extractHrefs( string $html ): array {
+		if ( '' === trim( $html ) ) {
+			return array();
+		}
+
+		$pattern = '/<a\b([^>]*?)>(.*?)<\/a\s*>/is';
+
+		$matchCount = preg_match_all( $pattern, $html, $matches, PREG_SET_ORDER );
+
+		// See extract() for why false and 0 must be handled differently.
+		if ( false === $matchCount ) {
+			error_log( '[rakuten-link-tracker] LinkExtractor: preg_match_all() failed; href extraction skipped for this content.' );
+
+			return array();
+		}
+
+		if ( 0 === $matchCount ) {
+			return array();
+		}
+
+		$hrefs = array();
+
+		foreach ( $matches as $match ) {
+			$url = $this->hrefFrom( $match[1] );
+
+			if ( null !== $url ) {
+				$hrefs[] = $url;
+			}
+		}
+
+		return $hrefs;
+	}
+
+	/**
 	 * Pull the href value out of an anchor's attribute string.
 	 */
 	private function hrefFrom( string $attributes ): ?string {
@@ -1446,7 +1505,7 @@ final class LinkExtractor {
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter LinkExtractorTest
 ```
 
-Expected: PASS — `OK (25 tests, ...)`
+Expected: PASS — `OK (27 tests, ...)`
 
 - [ ] **Step 5: コミット**
 
@@ -3860,11 +3919,20 @@ final class PostSyncTest extends WP_UnitTestCase {
 	private PostSync $sync;
 	private LinkRepository $links;
 
+	/**
+	 * The plugin itself already constructs a PostSync and hooks it to
+	 * save_post (via Plugin::boot() on muplugins_loaded in
+	 * bootstrap-integration.php) for the whole test run. Registering a
+	 * second, locally-constructed instance here would make every save run
+	 * syncPost() twice through two separate objects, so this instance is
+	 * built (to call syncPost()/restorePost()/syncedPostTypes() directly)
+	 * but never registered; the save_post hook path is left to the plugin's
+	 * own already-registered instance.
+	 */
 	protected function setUp(): void {
 		parent::setUp();
 		$this->links = new LinkRepository();
 		$this->sync  = new PostSync( $this->links );
-		$this->sync->register();
 	}
 
 	private function createPostWithLink( string $content ): int {
@@ -4016,6 +4084,80 @@ final class PostSyncTest extends WP_UnitTestCase {
 
 		$this->assertNotSame( $codeA, $codeB );
 	}
+
+	public function test_resaving_an_unchanged_post_does_not_archive_its_links(): void {
+		$postId = $this->createPostWithLink( '<a href="' . self::AFFILIATE . '">ホテル</a>' );
+
+		$this->assertCount( 1, $this->links->findByPost( $postId ) );
+
+		// 編集者が「更新」をもう一度押しただけ。ここでリンクがアーカイブされると
+		// PVビーコンが止まり、以降その記事の計測が無言で死ぬ。
+		wp_update_post( array( 'ID' => $postId ) );
+
+		$this->assertCount( 1, $this->links->findByPost( $postId ), 'Re-saving archived the post links.' );
+	}
+
+	public function test_repeated_saves_keep_the_same_code_and_content(): void {
+		$postId = $this->createPostWithLink( '<a href="' . self::AFFILIATE . '">ホテル</a>' );
+
+		$code    = $this->links->findByPost( $postId )[0]['code'];
+		$content = get_post_field( 'post_content', $postId );
+
+		for ( $i = 0; $i < 3; $i++ ) {
+			wp_update_post( array( 'ID' => $postId ) );
+		}
+
+		$links = $this->links->findByPost( $postId );
+
+		$this->assertCount( 1, $links );
+		$this->assertSame( $code, $links[0]['code'] );
+		$this->assertSame( $content, get_post_field( 'post_content', $postId ) );
+	}
+
+	public function test_a_short_url_outside_an_anchor_does_not_keep_a_removed_link_alive(): void {
+		$postId = $this->createPostWithLink( '<a href="' . self::AFFILIATE . '">ホテル</a>' );
+		$linkId = $this->links->findByPost( $postId )[0]['id'];
+		$short  = \RLT\Settings::shortUrl( $this->links->findById( $linkId )['code'] );
+
+		// アンカーは消したが、短縮URLの文字列だけが本文に残っている状況。
+		wp_update_post(
+			array(
+				'ID'           => $postId,
+				'post_content' => '<p>以前は ' . esc_html( $short ) . ' を紹介していました。</p>',
+			)
+		);
+
+		$this->assertSame( array(), $this->links->findByPost( $postId ), 'A bare short URL kept a removed link active.' );
+		$this->assertSame( 0, $this->links->findById( $linkId )['status'] );
+	}
+
+	public function test_writing_content_bumps_the_modified_time(): void {
+		$postId = self::factory()->post->create(
+			array(
+				'post_content'      => '<p>まだリンクなし</p>',
+				'post_status'       => 'publish',
+				'post_modified'     => '2020-01-01 00:00:00',
+				'post_modified_gmt' => '2020-01-01 00:00:00',
+			)
+		);
+
+		global $wpdb;
+		$wpdb->update(
+			$wpdb->posts,
+			array(
+				'post_content'      => '<a href="' . self::AFFILIATE . '">ホテル</a>',
+				'post_modified'     => '2020-01-01 00:00:00',
+				'post_modified_gmt' => '2020-01-01 00:00:00',
+			),
+			array( 'ID' => $postId )
+		);
+		clean_post_cache( $postId );
+
+		$this->assertTrue( $this->sync->syncPost( $postId ) );
+
+		// 更新時刻が古いままだと、キャッシュが書き換え前の本文を配り続ける。
+		$this->assertNotSame( '2020-01-01 00:00:00', get_post_field( 'post_modified_gmt', $postId ) );
+	}
 }
 ```
 
@@ -4106,6 +4248,7 @@ final class PostSync {
 			$content   = (string) $post->post_content;
 			$extractor = new LinkExtractor( Settings::hosts(), Settings::shortBase() );
 			$found     = $extractor->extract( $content );
+			$hrefs     = $extractor->extractHrefs( $content );
 
 			$map     = array();
 			$keepIds = array();
@@ -4119,6 +4262,31 @@ final class PostSync {
 
 				$keepIds[]           = $link['id'];
 				$map[ $item['url'] ] = Settings::shortUrl( $link['code'] );
+			}
+
+			// An already-active link whose short URL is still sitting in the
+			// content must also be kept, even though LinkExtractor::extract()
+			// (which only looks for un-shortened affiliate hrefs) will not
+			// report it. This is the ordinary case on every re-save of a post
+			// that was already converted: the content already holds short
+			// URLs, extract() deliberately ignores them, so $found -- and
+			// therefore $keepIds -- would otherwise be built as if every link
+			// on the post had been removed, and archiveOthers() below would
+			// archive all of them on a plain "Update" click.
+			//
+			// The check is scoped to actual <a href> values (via
+			// extractHrefs()), not a raw substring search over the whole
+			// document: a short URL sitting in plain text, an HTML comment,
+			// an <img src>, or a code sample is not a live link and must not
+			// keep an actually-removed link active.
+			foreach ( $this->links->findByPost( $postId, true ) as $active ) {
+				if ( in_array( $active['id'], $keepIds, true ) ) {
+					continue;
+				}
+
+				if ( in_array( Settings::shortUrl( $active['code'] ), $hrefs, true ) ) {
+					$keepIds[] = $active['id'];
+				}
 			}
 
 			// Links no longer present in the content are archived, never deleted:
@@ -4205,11 +4373,20 @@ final class PostSync {
 	private function writeContent( int $postId, string $content ): void {
 		global $wpdb;
 
+		// post_modified / post_modified_gmt must be bumped here even though
+		// wp_update_post() is deliberately avoided: a page cache or CDN keyed
+		// on the modified time would otherwise keep serving the pre-rewrite
+		// content, so the links visitors actually click stay the untracked
+		// originals until something else touches the post.
 		$wpdb->update(
 			$wpdb->posts,
-			array( 'post_content' => $content ),
+			array(
+				'post_content'      => $content,
+				'post_modified'     => current_time( 'mysql' ),
+				'post_modified_gmt' => current_time( 'mysql', true ),
+			),
 			array( 'ID' => $postId ),
-			array( '%s' ),
+			array( '%s', '%s', '%s' ),
 			array( '%d' )
 		);
 
@@ -4236,7 +4413,7 @@ final class PostSync {
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostSyncTest
 ```
 
-Expected: PASS — `OK (14 tests, ...)`
+Expected: PASS — `OK (18 tests, ...)`
 
 - [ ] **Step 6: コミット**
 

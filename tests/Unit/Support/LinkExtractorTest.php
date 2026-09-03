@@ -205,4 +205,21 @@ final class LinkExtractorTest extends TestCase {
 
 		$this->assertCount( 1, $links );
 	}
+
+	public function test_extract_hrefs_returns_every_anchor_href_decoded(): void {
+		$html = '<a href="https://hb.afl.rakuten.co.jp/hgc/a/?pc=x&amp;m=y">A</a>'
+			. '<a href=\'https://example.com/go/abc123\'>B</a>'
+			. '<img src="https://hb.afl.rakuten.co.jp/hsc/a/?me_id=1">';
+
+		$hrefs = $this->extractor()->extractHrefs( $html );
+
+		$this->assertSame(
+			array( 'https://hb.afl.rakuten.co.jp/hgc/a/?pc=x&m=y', 'https://example.com/go/abc123' ),
+			$hrefs
+		);
+	}
+
+	public function test_extract_hrefs_returns_an_empty_array_for_content_without_links(): void {
+		$this->assertSame( array(), $this->extractor()->extractHrefs( '<p>本文だけ</p>' ) );
+	}
 }

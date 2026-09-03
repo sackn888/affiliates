@@ -82,6 +82,47 @@ final class LinkExtractor {
 	}
 
 	/**
+	 * Every href value in the content, decoded, in document order.
+	 *
+	 * PostSync needs this to tell "this link is still in the post, already
+	 * shortened" apart from "this link was deleted from the post".
+	 *
+	 * @return string[]
+	 */
+	public function extractHrefs( string $html ): array {
+		if ( '' === trim( $html ) ) {
+			return array();
+		}
+
+		$pattern = '/<a\b([^>]*?)>(.*?)<\/a\s*>/is';
+
+		$matchCount = preg_match_all( $pattern, $html, $matches, PREG_SET_ORDER );
+
+		// See extract() for why false and 0 must be handled differently.
+		if ( false === $matchCount ) {
+			error_log( '[rakuten-link-tracker] LinkExtractor: preg_match_all() failed; href extraction skipped for this content.' );
+
+			return array();
+		}
+
+		if ( 0 === $matchCount ) {
+			return array();
+		}
+
+		$hrefs = array();
+
+		foreach ( $matches as $match ) {
+			$url = $this->hrefFrom( $match[1] );
+
+			if ( null !== $url ) {
+				$hrefs[] = $url;
+			}
+		}
+
+		return $hrefs;
+	}
+
+	/**
 	 * Pull the href value out of an anchor's attribute string.
 	 */
 	private function hrefFrom( string $attributes ): ?string {
