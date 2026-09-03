@@ -29,19 +29,23 @@
 
 ### 環境コマンド（PowerShell）
 
+**前提**: Docker Desktop が起動していること。起動していないと `docker` / `wp-env` の全コマンドが失敗する。
+`wp-env` は `npx @wordpress/env` と書く（`npx wp-env` ではパッケージが解決されない）。
+コンテナ内で実行するコマンドは `--` の後ろにトークンとして渡す（引用符で1つの文字列にまとめると失敗する）。
+
 ```powershell
 # 依存インストール（PHP を Windows に入れずに Docker の composer イメージで実行）
 docker run --rm -v "${PWD}:/app" -w /app composer:2 install
 
 # wp-env の起動 / 停止
-npx wp-env start
-npx wp-env stop
+npx @wordpress/env start
+npx @wordpress/env stop
 
 # 単体テスト（WordPress 非依存）
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist
 
 # 統合テスト（WordPress 込み）
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist
 ```
 
 ---
@@ -270,8 +274,8 @@ final class SmokeTest extends TestCase {
 
 ```powershell
 docker run --rm -v "${PWD}:/app" -w /app composer:2 install
-npx wp-env start
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist"
+npx @wordpress/env start
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist
 ```
 
 Expected: FAIL — `Class "RLT\Plugin" not found`
@@ -366,7 +370,7 @@ final class Plugin {
 - [ ] **Step 10: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist
 ```
 
 Expected: PASS — `OK (1 test, 1 assertion)`
@@ -391,7 +395,7 @@ final class BootstrapTest extends WP_UnitTestCase {
 ```
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist
 ```
 
 Expected: PASS — `OK (1 test, 1 assertion)`
@@ -495,7 +499,7 @@ final class CodeGeneratorTest extends TestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter CodeGeneratorTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter CodeGeneratorTest
 ```
 
 Expected: FAIL — `Class "RLT\Support\CodeGenerator" not found`
@@ -551,7 +555,7 @@ final class CodeGenerator {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter CodeGeneratorTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter CodeGeneratorTest
 ```
 
 Expected: PASS — `OK (11 tests, ...)`
@@ -696,7 +700,7 @@ final class DeviceDetectorTest extends TestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter 'BotFilterTest|DeviceDetectorTest'"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter 'BotFilterTest|DeviceDetectorTest'
 ```
 
 Expected: FAIL — `Class "RLT\Support\BotFilter" not found`
@@ -834,7 +838,7 @@ final class DeviceDetector {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter 'BotFilterTest|DeviceDetectorTest'"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter 'BotFilterTest|DeviceDetectorTest'
 ```
 
 Expected: PASS
@@ -929,7 +933,7 @@ final class VisitorHashTest extends TestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter VisitorHashTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter VisitorHashTest
 ```
 
 Expected: FAIL — `Class "RLT\Support\VisitorHash" not found`
@@ -969,7 +973,7 @@ final class VisitorHash {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter VisitorHashTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter VisitorHashTest
 ```
 
 Expected: PASS — `OK (7 tests, ...)`
@@ -1186,7 +1190,7 @@ final class LinkExtractorTest extends TestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter LinkExtractorTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter LinkExtractorTest
 ```
 
 Expected: FAIL — `Class "RLT\Support\LinkExtractor" not found`
@@ -1346,7 +1350,7 @@ final class LinkExtractor {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter LinkExtractorTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter LinkExtractorTest
 ```
 
 Expected: PASS — `OK (19 tests, ...)`
@@ -1529,7 +1533,7 @@ final class ContentRewriterTest extends TestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter ContentRewriterTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter ContentRewriterTest
 ```
 
 Expected: FAIL — `Class "RLT\Support\ContentRewriter" not found`
@@ -1602,7 +1606,7 @@ final class ContentRewriter {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter ContentRewriterTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter ContentRewriterTest
 ```
 
 Expected: PASS — `OK (14 tests, ...)`
@@ -1747,7 +1751,7 @@ final class SettingsTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsTest
 ```
 
 Expected: FAIL — `Class "RLT\Settings" not found`
@@ -1916,7 +1920,7 @@ final class Settings {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsTest
 ```
 
 Expected: PASS — `OK (11 tests, ...)`
@@ -2119,7 +2123,7 @@ final class InstallerTest extends WP_UnitTestCase {
 - [ ] **Step 3: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter InstallerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter InstallerTest
 ```
 
 Expected: FAIL — `Class "RLT\Installer" not found`
@@ -2314,7 +2318,7 @@ register_deactivation_hook(
 - [ ] **Step 7: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter InstallerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter InstallerTest
 ```
 
 Expected: PASS — `OK (8 tests, ...)`
@@ -2528,7 +2532,7 @@ final class LinkRepositoryTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinkRepositoryTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinkRepositoryTest
 ```
 
 Expected: FAIL — `Class "RLT\Data\LinkRepository" not found`
@@ -2787,7 +2791,7 @@ final class LinkRepository {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinkRepositoryTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinkRepositoryTest
 ```
 
 Expected: PASS — `OK (15 tests, ...)`
@@ -3010,7 +3014,7 @@ final class EventRepositoryRecordTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter 'RequestContextTest|EventRepositoryRecordTest'"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter 'RequestContextTest|EventRepositoryRecordTest'
 ```
 
 Expected: FAIL — `Class "RLT\Support\RequestContext" not found`
@@ -3206,7 +3210,7 @@ final class EventRepository {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter 'RequestContextTest|EventRepositoryRecordTest'"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter 'RequestContextTest|EventRepositoryRecordTest'
 ```
 
 Expected: PASS — `OK (17 tests, ...)`
@@ -3420,7 +3424,7 @@ final class PostSyncTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostSyncTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostSyncTest
 ```
 
 Expected: FAIL — `Class "RLT\Frontend\PostSync" not found`
@@ -3631,7 +3635,7 @@ final class PostSync {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostSyncTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostSyncTest
 ```
 
 Expected: PASS — `OK (14 tests, ...)`
@@ -3875,7 +3879,7 @@ final class RedirectHandlerTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter RedirectHandlerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter RedirectHandlerTest
 ```
 
 Expected: FAIL — `Class "RLT\Frontend\RedirectHandler" not found`
@@ -4054,7 +4058,7 @@ final class RedirectHandler {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter RedirectHandlerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter RedirectHandlerTest
 ```
 
 Expected: PASS — `OK (14 tests, ...)`
@@ -4062,10 +4066,10 @@ Expected: PASS — `OK (14 tests, ...)`
 - [ ] **Step 6: 手動で動作確認する**
 
 ```powershell
-npx wp-env run cli "wp plugin activate rakuten-link-tracker"
-npx wp-env run cli "wp rewrite flush"
-npx wp-env run cli "wp post create --post_title='テスト' --post_status=publish --post_content='<a href=\"https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x\">ホテル</a>' --porcelain"
-npx wp-env run cli "wp post get <上で出たID> --field=post_content"
+npx @wordpress/env run cli -- wp plugin activate rakuten-link-tracker
+npx @wordpress/env run cli -- wp rewrite flush
+npx @wordpress/env run cli -- wp post create --post_title='テスト' --post_status=publish --post_content='<a href=\https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x\">ホテル</a>' --porcelain"
+npx @wordpress/env run cli -- wp post get <上で出たID> --field=post_content
 ```
 
 Expected: 本文の `href` が `http://localhost:8888/go/xxxxxx` に置き換わっている
@@ -4240,7 +4244,7 @@ final class BeaconControllerTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BeaconControllerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BeaconControllerTest
 ```
 
 Expected: FAIL — `Class "RLT\Frontend\BeaconController" not found`
@@ -4461,7 +4465,7 @@ final class BeaconController {
 - [ ] **Step 6: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BeaconControllerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BeaconControllerTest
 ```
 
 Expected: PASS — `OK (11 tests, ...)`
@@ -4580,7 +4584,7 @@ final class DateRangeTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DateRangeTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DateRangeTest
 ```
 
 Expected: FAIL — `Class "RLT\Support\DateRange" not found`
@@ -4716,7 +4720,7 @@ final class DateRange {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DateRangeTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DateRangeTest
 ```
 
 Expected: PASS — `OK (9 tests, ...)`
@@ -5050,7 +5054,7 @@ final class EventRepositoryStatsTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter EventRepositoryStatsTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter EventRepositoryStatsTest
 ```
 
 Expected: FAIL — `Call to undefined method RLT\Data\EventRepository::summary()`
@@ -5488,7 +5492,7 @@ Expected: FAIL — `Call to undefined method RLT\Data\EventRepository::summary()
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter EventRepositoryStatsTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter EventRepositoryStatsTest
 ```
 
 Expected: PASS — `OK (16 tests, ...)`
@@ -5619,7 +5623,7 @@ final class ApiKeyManagerTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ApiKeyManagerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ApiKeyManagerTest
 ```
 
 Expected: FAIL — `Class "RLT\Data\ApiKeyManager" not found`
@@ -5756,7 +5760,7 @@ final class ApiKeyManager {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ApiKeyManagerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ApiKeyManagerTest
 ```
 
 Expected: PASS — `OK (10 tests, ...)`
@@ -6029,7 +6033,7 @@ final class StatsControllerTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StatsControllerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StatsControllerTest
 ```
 
 Expected: FAIL — `Class "RLT\Api\StatsController" not found`
@@ -6399,7 +6403,7 @@ final class StatsController {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StatsControllerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StatsControllerTest
 ```
 
 Expected: PASS — `OK (18 tests, ...)`
@@ -6535,7 +6539,7 @@ final class ExportControllerTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ExportControllerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ExportControllerTest
 ```
 
 Expected: FAIL — `Class "RLT\Api\ExportController" not found`
@@ -6695,7 +6699,7 @@ final class ExportController {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ExportControllerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ExportControllerTest
 ```
 
 Expected: PASS — `OK (8 tests, ...)`
@@ -6835,7 +6839,7 @@ final class CronTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter CronTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter CronTest
 ```
 
 Expected: FAIL — `Class "RLT\Cron" not found`
@@ -6921,7 +6925,7 @@ register_deactivation_hook(
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter CronTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter CronTest
 ```
 
 Expected: PASS — `OK (6 tests, ...)`
@@ -7047,7 +7051,7 @@ final class SvgChartTest extends TestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter SvgChartTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter SvgChartTest
 ```
 
 Expected: FAIL — `Class "RLT\Admin\SvgChart" not found`
@@ -7167,7 +7171,7 @@ final class SvgChart {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter SvgChartTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter SvgChartTest
 ```
 
 Expected: PASS — `OK (9 tests, ...)`
@@ -7345,7 +7349,7 @@ final class DashboardPageTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DashboardPageTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DashboardPageTest
 ```
 
 Expected: FAIL — `Class "RLT\Admin\AdminMenu" not found`
@@ -7788,7 +7792,7 @@ final class SettingsPage {
 ```
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DashboardPageTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DashboardPageTest
 ```
 
 Expected: PASS — `OK (10 tests, ...)`
@@ -7994,7 +7998,7 @@ final class LinksListTableTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinksListTableTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinksListTableTest
 ```
 
 Expected: FAIL — `Class "RLT\Admin\LinksListTable" not found`
@@ -8449,7 +8453,7 @@ final class LinkDetailPage {
 - [ ] **Step 6: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinksListTableTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinksListTableTest
 ```
 
 Expected: PASS — `OK (10 tests, ...)`
@@ -8577,7 +8581,7 @@ final class PostsReportPageTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostsReportPageTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostsReportPageTest
 ```
 
 Expected: FAIL — `render()` が何も出力しない
@@ -8688,7 +8692,7 @@ final class PostsReportPage {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostsReportPageTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostsReportPageTest
 ```
 
 Expected: PASS — `OK (7 tests, ...)`
@@ -8849,7 +8853,7 @@ final class BulkConverterTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BulkConverterTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BulkConverterTest
 ```
 
 Expected: FAIL — `Class "RLT\Admin\BulkConverter" not found`
@@ -9073,7 +9077,7 @@ final class BulkConverter {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BulkConverterTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BulkConverterTest
 ```
 
 Expected: PASS — `OK (7 tests, ...)`
@@ -9289,7 +9293,7 @@ final class SettingsPageTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsPageTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsPageTest
 ```
 
 Expected: FAIL — `Undefined constant RLT\Admin\SettingsPage::NONCE`
@@ -9613,7 +9617,7 @@ final class SettingsPage {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsPageTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsPageTest
 ```
 
 Expected: PASS — `OK (11 tests, ...)`
@@ -9750,7 +9754,7 @@ final class UninstallTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter UninstallTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter UninstallTest
 ```
 
 Expected: FAIL — `Call to undefined method RLT\Installer::restoreAllPosts()`
@@ -9838,7 +9842,7 @@ if ( ! defined( 'RLT_PLUGIN_FILE' ) ) {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter UninstallTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter UninstallTest
 ```
 
 Expected: PASS — `OK (6 tests, ...)`
@@ -9861,8 +9865,8 @@ git commit -m "feat: アンインストール時に本文を復元してから�
 - [ ] **Step 1: 全テストを通す**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist"
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist
 ```
 
 Expected: 両方とも `OK`。1件でも失敗したらここで止めて直す。
@@ -9870,10 +9874,10 @@ Expected: 両方とも `OK`。1件でも失敗したらここで止めて直す�
 - [ ] **Step 2: 実際のブラウザで一連の流れを確認する**
 
 ```powershell
-npx wp-env run cli "wp plugin activate rakuten-link-tracker"
-npx wp-env run cli "wp rewrite structure '/%postname%/'"
-npx wp-env run cli "wp rewrite flush"
-npx wp-env run cli "wp post create --post_title='テストホテル記事' --post_status=publish --porcelain --post_content='<p><a href=\"https://hb.afl.rakuten.co.jp/hgc/abc123/?pc=https%3A%2F%2Ftravel.rakuten.co.jp%2F\">ホテル雅叙園東京</a></p><img src=\"https://hb.afl.rakuten.co.jp/hsc/abc123/?me_id=1\" width=\"1\" height=\"1\">'"
+npx @wordpress/env run cli -- wp plugin activate rakuten-link-tracker
+npx @wordpress/env run cli -- wp rewrite structure '/%postname%/'
+npx @wordpress/env run cli -- wp rewrite flush
+npx @wordpress/env run cli -- wp post create --post_title='テストホテル記事' --post_status=publish --porcelain --post_content='<p><a href=\https://hb.afl.rakuten.co.jp/hgc/abc123/?pc=https%3A%2F%2Ftravel.rakuten.co.jp%2F\">ホテル雅叙園東京</a></p><img src=\"https://hb.afl.rakuten.co.jp/hsc/abc123/?me_id=1\" width=\"1\" height=\"1\">'"
 ```
 
 続いて以下を目視で確認する。
@@ -9970,13 +9974,13 @@ curl -H "X-RLT-Key: rlt_xxxxxxxx" \
 
 ```powershell
 docker run --rm -v "${PWD}:/app" -w /app composer:2 install
-npx wp-env start
+npx @wordpress/env start
 
 # 単体テスト（WordPress 非依存）
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist
 
 # 統合テスト
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist
 ```
 
 ## アンインストールについて
