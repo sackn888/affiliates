@@ -84,4 +84,73 @@ final class SettingsTest extends WP_UnitTestCase {
 
 		$this->assertNotSame( $before, Settings::salt() );
 	}
+
+	/**
+	 * @dataProvider hostInputs
+	 */
+	public function test_hosts_are_normalised_to_bare_hostnames( string $input, string $expected ): void {
+		Settings::update( array( 'hosts' => array( $input ) ) );
+
+		$this->assertSame( array( $expected ), Settings::hosts() );
+	}
+
+	public static function hostInputs(): array {
+		return array(
+			'bare host'        => array( 'hb.afl.rakuten.co.jp', 'hb.afl.rakuten.co.jp' ),
+			'https url'        => array( 'https://hb.afl.rakuten.co.jp/', 'hb.afl.rakuten.co.jp' ),
+			'http url'         => array( 'http://hb.afl.rakuten.co.jp', 'hb.afl.rakuten.co.jp' ),
+			'url with path'    => array( 'https://hb.afl.rakuten.co.jp/hgc/abc/', 'hb.afl.rakuten.co.jp' ),
+			'scheme relative'  => array( '//hb.afl.rakuten.co.jp/x', 'hb.afl.rakuten.co.jp' ),
+			'trailing slash'   => array( 'hb.afl.rakuten.co.jp/', 'hb.afl.rakuten.co.jp' ),
+			'with port'        => array( 'hb.afl.rakuten.co.jp:443', 'hb.afl.rakuten.co.jp' ),
+			'uppercase'        => array( 'HB.AFL.Rakuten.CO.JP', 'hb.afl.rakuten.co.jp' ),
+			'padded'           => array( '  hb.afl.rakuten.co.jp  ', 'hb.afl.rakuten.co.jp' ),
+		);
+	}
+
+	public function test_a_host_entered_as_a_url_still_matches_the_extractor(): void {
+		Settings::update( array( 'hosts' => array( 'https://hb.afl.rakuten.co.jp/' ) ) );
+
+		$extractor = new \RLT\Support\LinkExtractor( Settings::hosts(), Settings::shortBase() );
+		$links     = $extractor->extract( '<a href="https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x">ホテル</a>' );
+
+		// 設定とエクストラクタの突き合わせが崩れていると、ここで 0 件になる。
+		$this->assertCount( 1, $links );
+	}
+
+	/**
+	 * @dataProvider reservedPrefixes
+	 */
+	public function test_reserved_prefixes_fall_back_to_the_default( string $prefix ): void {
+		Settings::update( array( 'prefix' => $prefix ) );
+
+		$this->assertSame( 'go', Settings::prefix() );
+	}
+
+	public static function reservedPrefixes(): array {
+		return array(
+			'wp-admin' => array( 'wp-admin' ),
+			'wp-json'  => array( 'wp-json' ),
+			'feed'     => array( 'feed' ),
+			'category' => array( 'category' ),
+			'uppercase reserved' => array( 'Feed' ),
+		);
+	}
+
+	public function test_an_ordinary_prefix_is_still_accepted(): void {
+		Settings::update( array( 'prefix' => 'out' ) );
+
+		$this->assertSame( 'out', Settings::prefix() );
+	}
+
+	public function test_salt_survives_a_concurrent_creation(): void {
+		delete_option( Settings::SALT_OPTION );
+
+		// 先に別リクエストがソルトを作った状況を再現する。
+		$winner = str_repeat( 'a', 64 );
+		add_option( Settings::SALT_OPTION, $winner, '', false );
+
+		// 後発のリクエストは自分で生成した値ではなく、既存の値を使わなければならない。
+		$this->assertSame( $winner, Settings::salt() );
+	}
 }
