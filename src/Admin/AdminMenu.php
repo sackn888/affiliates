@@ -22,6 +22,8 @@ final class AdminMenu {
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue' ) );
 
 		( new LinkDetailPage() )->register();
+		( new SettingsPage() )->register();
+		( new BulkConverter() )->register();
 	}
 
 	public function addPages(): void {
