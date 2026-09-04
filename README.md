@@ -29,16 +29,21 @@
 
 ## インストール
 
-このマシンにはPHP／Composerが入っていない前提で、Composerの依存解決はDocker経由で行います。
+このプラグインはランタイム依存を持たず、リポジトリの内容がそのまま動くプラグインです。`composer install` は不要です。
 
 1. このディレクトリを `wp-content/plugins/rakuten-link-tracker` に置く
-2. オートローダを生成する（Docker上のComposerを使用）
+2. 管理画面でプラグインを有効化する
 
-   ```powershell
-   docker run --rm -v "${PWD}:/app" -w /app composer:2 install --no-dev
-   ```
+（`vendor/` はComposer自身のオートロード用の足場のみを含み、開発時のテスト実行にしか使いません。`RLT\` 名前空間から `src/` を解決する小さなオートローダーをプラグイン本体が持っているため、`vendor/` が存在しなくても起動します。）
 
-3. 管理画面でプラグインを有効化する
+## 更新の仕組み
+
+このプラグインはPublicなGitHubリポジトリを直接更新元にしています。ビルドもリリース作業もトークンも不要で、更新を配るのに必要な作業は `git push` だけです。
+
+- 各サイトは12時間ごとに、既定ブランチ上の `rakuten-link-tracker.php` のプラグインヘッダ（`Version:`）だけをGitHubから取得して現在のバージョンと比較します
+- 新しいバージョンがあれば、通常のプラグイン更新画面に更新通知が出ます。パッケージは既定ブランチのブランチアーカイブ（`https://github.com/{owner}/{name}/archive/refs/heads/{branch}.zip`）で、タグやリリースの作成は不要です
+- 更新チェックに失敗した場合（GitHubに到達できない等）は、プラグイン画面に警告が表示されます
+- `rakuten-link-tracker.php` 冒頭の `RLT_GITHUB_REPO` 定数（`OWNER/rakuten-link-tracker`）にリポジトリのオーナー名を設定するまでは、更新チェックは何もしません（通信もチェックも一切行われません）
 
 ## プレフィックスの変更は安全です
 

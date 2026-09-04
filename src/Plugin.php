@@ -54,5 +54,12 @@ final class Plugin {
 		if ( is_admin() ) {
 			( new \RLT\Admin\AdminMenu() )->register();
 		}
+
+		// No reason to check GitHub for updates on a visitor request -- only
+		// when an admin might see the result, or when WP-Cron runs the
+		// periodic update check.
+		if ( is_admin() || wp_doing_cron() ) {
+			( new Updater( RLT_GITHUB_REPO ) )->register();
+		}
 	}
 }
