@@ -75,9 +75,10 @@ final class PostSync {
 			// with the old prefix. Only checking the current prefix here would
 			// make extract() treat that already-shortened URL as a fresh
 			// affiliate link and double-shorten it.
-			$extractor = new LinkExtractor( Settings::hosts(), Settings::shortBases() );
-			$found     = $extractor->extract( $content );
-			$hrefs     = $extractor->extractHrefs( $content );
+			$extractor      = new LinkExtractor( Settings::hosts(), Settings::shortBases() );
+			$found          = $extractor->extract( $content );
+			$hrefs          = $extractor->extractHrefs( $content );
+			$shortcodeFound = $extractor->extractShortcodeUrls( $content );
 
 			$map     = array();
 			$keepIds = array();
@@ -91,6 +92,26 @@ final class PostSync {
 
 				$keepIds[]           = $link['id'];
 				$map[ $item['url'] ] = Settings::shortUrl( $link['code'] );
+			}
+
+			// Blog-card shortcode URLs are issued a code and kept alive here so
+			// archiveOthers() below does not sweep them away, but they are
+			// deliberately never added to $map: a blog card fetches its target
+			// URL server-side to build its preview, so rewriting the stored
+			// shortcode attribute would make the card preview the /go/
+			// redirect instead of the hotel page, and every card render would
+			// itself be recorded as a click. The stored content therefore
+			// stays byte-identical for shortcode-only posts; the rendered
+			// anchor is swapped later, at render time, by
+			// Frontend\ContentFilter.
+			foreach ( $shortcodeFound as $item ) {
+				$link = $this->links->findOrCreate( $item['url'], $postId, $item['label'] );
+
+				if ( null === $link ) {
+					continue;
+				}
+
+				$keepIds[] = $link['id'];
 			}
 
 			// An already-active link whose short URL is still sitting in the

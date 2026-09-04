@@ -250,4 +250,78 @@ final class LinkExtractorTest extends TestCase {
 	public function test_extract_hrefs_returns_an_empty_array_for_content_without_links(): void {
 		$this->assertSame( array(), $this->extractor()->extractHrefs( '<p>本文だけ</p>' ) );
 	}
+
+	public function test_extract_shortcode_urls_finds_a_double_quoted_attribute(): void {
+		$html = '[blogcard url="https://hb.afl.rakuten.co.jp/hgc/3f340f4d.133c36c1.3f340f4e.ce5a53a9/_RTLink137659?pc=https%3A%2F%2Ftravel.rakuten.co.jp%2FHOTEL%2F9611%2F9611.html"]';
+
+		$links = $this->extractor()->extractShortcodeUrls( $html );
+
+		$this->assertCount( 1, $links );
+		$this->assertSame(
+			'https://hb.afl.rakuten.co.jp/hgc/3f340f4d.133c36c1.3f340f4e.ce5a53a9/_RTLink137659?pc=https%3A%2F%2Ftravel.rakuten.co.jp%2FHOTEL%2F9611%2F9611.html',
+			$links[0]['url']
+		);
+	}
+
+	public function test_extract_shortcode_urls_finds_a_single_quoted_attribute(): void {
+		$html = "[blogcard url='https://hb.afl.rakuten.co.jp/hgc/abc123/?pc=x']";
+
+		$links = $this->extractor()->extractShortcodeUrls( $html );
+
+		$this->assertCount( 1, $links );
+		$this->assertSame( 'https://hb.afl.rakuten.co.jp/hgc/abc123/?pc=x', $links[0]['url'] );
+	}
+
+	public function test_extract_shortcode_urls_finds_an_unquoted_attribute(): void {
+		$html = '[blogcard url=https://hb.afl.rakuten.co.jp/hgc/abc123/]';
+
+		$links = $this->extractor()->extractShortcodeUrls( $html );
+
+		$this->assertCount( 1, $links );
+		$this->assertSame( 'https://hb.afl.rakuten.co.jp/hgc/abc123/', $links[0]['url'] );
+	}
+
+	public function test_extract_shortcode_urls_ignores_a_non_rakuten_host(): void {
+		$html = '[blogcard url="https://example.org/page"]';
+
+		$this->assertSame( array(), $this->extractor()->extractShortcodeUrls( $html ) );
+	}
+
+	public function test_extract_shortcode_urls_ignores_a_javascript_scheme(): void {
+		$html = '[blogcard url="javascript://hb.afl.rakuten.co.jp/%0aalert(1)"]';
+
+		$this->assertSame( array(), $this->extractor()->extractShortcodeUrls( $html ) );
+	}
+
+	public function test_extract_shortcode_urls_ignores_an_already_shortened_url(): void {
+		$html = '[blogcard url="https://example.com/go/abc123"]';
+
+		$this->assertSame( array(), $this->extractor()->extractShortcodeUrls( $html ) );
+	}
+
+	public function test_extract_shortcode_urls_deduplicates_and_preserves_order(): void {
+		$html = '[blogcard url="https://hb.afl.rakuten.co.jp/hgc/one/"][blogcard url="https://af.rakuten.co.jp/two"][blogcard url="https://hb.afl.rakuten.co.jp/hgc/one/"]';
+
+		$links = $this->extractor()->extractShortcodeUrls( $html );
+
+		$this->assertCount( 2, $links );
+		$this->assertSame( 'https://hb.afl.rakuten.co.jp/hgc/one/', $links[0]['url'] );
+		$this->assertSame( 'https://af.rakuten.co.jp/two', $links[1]['url'] );
+	}
+
+	public function test_extract_shortcode_urls_labels_with_tag_and_host_and_path(): void {
+		$html = '[blogcard url="https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x"]';
+
+		$links = $this->extractor()->extractShortcodeUrls( $html );
+
+		$this->assertSame( 'blogcard', substr( $links[0]['label'], 0, 8 ) );
+		$this->assertStringContainsString( 'hb.afl.rakuten.co.jp', $links[0]['label'] );
+		$this->assertStringContainsString( '/hgc/abc/', $links[0]['label'] );
+	}
+
+	public function test_extract_returns_nothing_for_content_that_is_only_a_shortcode(): void {
+		$html = '[blogcard url="https://hb.afl.rakuten.co.jp/hgc/abc123/"]';
+
+		$this->assertSame( array(), $this->extractor()->extract( $html ) );
+	}
 }

@@ -129,6 +129,79 @@ final class LinkExtractor {
 	}
 
 	/**
+	 * Trackable URLs used as shortcode attribute values, e.g. a blog-card
+	 * shortcode `[blogcard url="https://hb.afl.rakuten.co.jp/..."]`.
+	 *
+	 * These are detected but deliberately never rewritten in place (see
+	 * PostSync::syncPost()): a blog card fetches its target URL server-side
+	 * to build a preview, so the shortcode in post_content must stay exactly
+	 * as the author wrote it. Rendering the tracked link happens later, at
+	 * render time, against the shortcode's *output* markup.
+	 *
+	 * @return array<int, array{url: string, label: string}> Unique, in first-appearance order.
+	 */
+	public function extractShortcodeUrls( string $html ): array {
+		if ( '' === trim( $html ) ) {
+			return array();
+		}
+
+		$shortcodePattern = '/\[([a-zA-Z_][a-zA-Z0-9_-]*)\b([^\]]*)\]/s';
+
+		if ( ! preg_match_all( $shortcodePattern, $html, $shortcodes, PREG_SET_ORDER ) ) {
+			return array();
+		}
+
+		$attrPattern = '/[a-zA-Z_][a-zA-Z0-9_-]*\s*=\s*("([^"]*)"|\'([^\']*)\'|([^\s\]]+))/';
+
+		$found = array();
+
+		foreach ( $shortcodes as $shortcode ) {
+			$tag = $shortcode[1];
+
+			if ( ! preg_match_all( $attrPattern, $shortcode[2], $attrs, PREG_SET_ORDER ) ) {
+				continue;
+			}
+
+			foreach ( $attrs as $attr ) {
+				if ( '' !== $attr[2] ) {
+					$raw = $attr[2];
+				} elseif ( isset( $attr[3] ) && '' !== $attr[3] ) {
+					$raw = $attr[3];
+				} else {
+					$raw = $attr[4] ?? '';
+				}
+
+				$url = html_entity_decode( trim( $raw ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+				if ( '' === $url || ! $this->isTrackable( $url ) ) {
+					continue;
+				}
+
+				if ( isset( $found[ $url ] ) ) {
+					continue;
+				}
+
+				$found[ $url ] = array(
+					'url'   => $url,
+					'label' => $this->shortcodeLabel( $tag, $url ),
+				);
+			}
+		}
+
+		return array_values( $found );
+	}
+
+	/**
+	 * There is no anchor text for a shortcode attribute, so the label is
+	 * built from the shortcode tag plus the URL's host and path.
+	 */
+	private function shortcodeLabel( string $tag, string $url ): string {
+		$text = $tag . ': ' . (string) parse_url( $url, PHP_URL_HOST ) . (string) parse_url( $url, PHP_URL_PATH );
+
+		return $this->truncate( $text );
+	}
+
+	/**
 	 * Pull the href value out of an anchor's attribute string.
 	 */
 	private function hrefFrom( string $attributes ): ?string {

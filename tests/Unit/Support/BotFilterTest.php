@@ -26,6 +26,7 @@ final class BotFilterTest extends TestCase {
 			'curl'        => array( 'curl/8.4.0' ),
 			'wget'        => array( 'Wget/1.21.3' ),
 			'python'      => array( 'python-requests/2.31.0' ),
+			'wordpress'   => array( 'WordPress/6.5; https://example.com' ),
 			'empty ua'    => array( '' ),
 		);
 	}

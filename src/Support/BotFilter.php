@@ -40,6 +40,13 @@ final class BotFilter {
 		'uptimerobot',
 		'lighthouse',
 		'gtmetrix',
+		// WordPress's own HTTP API (WP_Http) sends "WordPress/<version>;
+		// <url>" as its default user agent. Any WordPress-driven fetch of a
+		// /go/ URL -- a link checker, a card-preview fetcher, pingback
+		// verification, another WP site -- would otherwise be recorded as a
+		// genuine human click. No real browser's user agent contains this
+		// substring.
+		'wordpress/',
 	);
 
 	public static function isBot( string $userAgent ): bool {
