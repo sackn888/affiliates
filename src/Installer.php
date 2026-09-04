@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace RLT;
 
+use RLT\Data\ApiKeyManager;
+use RLT\Data\LinkRepository;
+use RLT\Frontend\PostSync;
+
 /**
  * Owns the database schema and its versioning.
  */
@@ -215,5 +219,50 @@ final class Installer {
 				$role->remove_cap( self::CAPABILITY );
 			}
 		}
+	}
+
+	/**
+	 * Put the original affiliate URLs back into every post the plugin touched.
+	 *
+	 * @return int Number of posts changed.
+	 */
+	public static function restoreAllPosts(): int {
+		$links    = new LinkRepository();
+		$sync     = new PostSync( $links );
+		$restored = 0;
+
+		foreach ( $links->postIdsWithLinks() as $postId ) {
+			if ( $sync->restorePost( $postId ) ) {
+				$restored++;
+			}
+		}
+
+		return $restored;
+	}
+
+	/**
+	 * Remove every trace of the plugin.
+	 *
+	 * Restoring the post content has to happen FIRST: once the links table is
+	 * gone there is no way to map a short URL back to its affiliate URL, and
+	 * every /go/ link in every post would be permanently dead.
+	 */
+	public static function uninstall(): void {
+		global $wpdb;
+
+		self::restoreAllPosts();
+
+		$wpdb->delete( $wpdb->postmeta, array( 'meta_key' => PostSync::META_ORIGINAL ) );
+
+		self::dropTables();
+		self::removeCapabilities();
+
+		Cron::unschedule();
+
+		delete_option( Settings::OPTION );
+		delete_option( Settings::SALT_OPTION );
+		delete_option( ApiKeyManager::OPTION );
+		delete_option( self::VERSION_OPTION );
+		delete_transient( 'rlt_new_api_key' );
 	}
 }
