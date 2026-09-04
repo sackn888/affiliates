@@ -49,5 +49,9 @@ final class Plugin {
 		( new \RLT\Api\StatsController() )->register();
 		( new \RLT\Api\ExportController() )->register();
 		( new Cron() )->register();
+
+		if ( is_admin() ) {
+			( new \RLT\Admin\AdminMenu() )->register();
+		}
 	}
 }
