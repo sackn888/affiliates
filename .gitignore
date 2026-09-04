@@ -4,3 +4,4 @@
 phpunit-unit.xml
 phpunit-integration.xml
 /.superpowers/
+/dist/
