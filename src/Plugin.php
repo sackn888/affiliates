@@ -46,6 +46,7 @@ final class Plugin {
 		( new \RLT\Frontend\PostSync() )->register();
 		( new \RLT\Frontend\RedirectHandler() )->register();
 		( new \RLT\Frontend\BeaconController() )->register();
+		( new \RLT\Frontend\ContentFilter() )->register();
 		( new \RLT\Api\StatsController() )->register();
 		( new \RLT\Api\ExportController() )->register();
 		( new Cron() )->register();

@@ -238,6 +238,17 @@ final class PostSyncTest extends WP_UnitTestCase {
 		$this->assertSame( 0, $this->links->findById( $linkId )['status'] );
 	}
 
+	public function test_a_shortcode_only_affiliate_url_issues_a_link_but_leaves_content_untouched(): void {
+		$content = '[blogcard url="' . self::AFFILIATE . '"]';
+		$postId  = $this->createPostWithLink( $content );
+
+		$links = $this->links->findByPost( $postId );
+
+		$this->assertCount( 1, $links );
+		$this->assertSame( self::AFFILIATE, $links[0]['target_url'] );
+		$this->assertSame( $content, get_post_field( 'post_content', $postId ), 'A shortcode-only post must be byte-identical after save: rewriting it would break the card preview.' );
+	}
+
 	public function test_writing_content_bumps_the_modified_time(): void {
 		$postId = self::factory()->post->create(
 			array(
