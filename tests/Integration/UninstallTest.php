@@ -155,4 +155,14 @@ final class UninstallTest extends WP_UnitTestCase {
 
 		$this->assertSame( '', get_post_meta( $postId, PostSync::META_ORIGINAL, true ) );
 	}
+
+	public function test_uninstall_removes_the_schema_check_transient(): void {
+		$this->allowRealDdl();
+
+		set_transient( Installer::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
+
+		Installer::uninstall();
+
+		$this->assertFalse( get_transient( Installer::SCHEMA_CHECK_TRANSIENT ) );
+	}
 }

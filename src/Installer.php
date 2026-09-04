@@ -25,7 +25,7 @@ final class Installer {
 	/**
 	 * How long a successful schema check is trusted before it is repeated.
 	 */
-	private const SCHEMA_CHECK_TRANSIENT = 'rlt_schema_checked';
+	public const SCHEMA_CHECK_TRANSIENT = 'rlt_schema_checked';
 
 	public static function linksTable(): string {
 		global $wpdb;
@@ -264,5 +264,6 @@ final class Installer {
 		delete_option( ApiKeyManager::OPTION );
 		delete_option( self::VERSION_OPTION );
 		delete_transient( 'rlt_new_api_key' );
+		delete_transient( self::SCHEMA_CHECK_TRANSIENT );
 	}
 }

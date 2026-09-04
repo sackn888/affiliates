@@ -10926,6 +10926,7 @@ Expected: FAIL — `Call to undefined method RLT\Installer::restoreAllPosts()`
 		delete_option( ApiKeyManager::OPTION );
 		delete_option( self::VERSION_OPTION );
 		delete_transient( 'rlt_new_api_key' );
+		delete_transient( self::SCHEMA_CHECK_TRANSIENT );
 	}
 ```
 
