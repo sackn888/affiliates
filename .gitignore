@@ -1,4 +1,4 @@
-/vendor/
+/rakuten-link-tracker/vendor/
 /node_modules/
 .phpunit.result.cache
 phpunit-unit.xml
