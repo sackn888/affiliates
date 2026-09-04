@@ -29,16 +29,23 @@
 
 ## インストール
 
-このマシンにはPHP／Composerが入っていない前提で、Composerの依存解決はDocker経由で行います。
+このプラグインは公開リポジトリ [`sackn888/affiliates`](https://github.com/sackn888/affiliates) の `rakuten-link-tracker/` ディレクトリからそのままインストールされます。ランタイム依存は持たず、`composer install` は不要です。
 
-1. このディレクトリを `wp-content/plugins/rakuten-link-tracker` に置く
-2. オートローダを生成する（Docker上のComposerを使用）
+1. リポジトリの `rakuten-link-tracker/` ディレクトリの内容を `wp-content/plugins/rakuten-link-tracker` に置く（このディレクトリ自体がリポジトリとして丸ごと配置される想定で、`git clone` してディレクトリ名をリネームするか、`rakuten-link-tracker/` だけを取り出して配置する）
+2. 管理画面でプラグインを有効化する
 
-   ```powershell
-   docker run --rm -v "${PWD}:/app" -w /app composer:2 install --no-dev
-   ```
+一度インストールすれば、以降は `sackn888/affiliates` リポジトリの `main` ブランチを自動的に追跡して自己更新します（詳細は次節）。
 
-3. 管理画面でプラグインを有効化する
+（`vendor/` はComposer自身のオートロード用の足場のみを含み、開発時のテスト実行にしか使いません。`RLT\` 名前空間から `src/` を解決する小さなオートローダーをプラグイン本体が持っているため、`vendor/` が存在しなくても起動します。同様に `tests/`、`composer.json`、`composer.lock`、`phpunit-unit.xml.dist`、`phpunit-integration.xml.dist` もインストール先に残りますが、リポジトリをそのまま配置する都合上そうなっているだけで、実行時には一切読み込まれない無害なファイルです。）
+
+## 更新の仕組み
+
+このプラグインはPublicなGitHubリポジトリ（`sackn888/affiliates`）を直接更新元にしています。ビルドもリリース作業もトークンも不要で、更新を配るのに必要な作業はこのリポジトリの `main` ブランチへの `git push` だけです。
+
+- 各サイトは12時間ごとに、`main` ブランチ上の `rakuten-link-tracker/rakuten-link-tracker.php` のプラグインヘッダ（`Version:`）だけをGitHubから取得して現在のバージョンと比較します
+- 新しいバージョンがあれば、通常のプラグイン更新画面に更新通知が出ます。パッケージは `main` ブランチのブランチアーカイブ（`https://github.com/sackn888/affiliates/archive/refs/heads/main.zip`）で、タグやリリースの作成は不要です。アーカイブはリポジトリ全体（`affiliates-main/`）なので、更新処理はその中の `rakuten-link-tracker/` だけを取り出してインストールします
+- 更新チェックに失敗した場合（GitHubに到達できない等）は、プラグイン画面に警告が表示されます
+- `rakuten-link-tracker.php` 冒頭の `RLT_GITHUB_REPO` / `RLT_GITHUB_BRANCH` / `RLT_GITHUB_PATH` 定数が `OWNER` プレースホルダーを含んだままの場合、更新チェックは何もしません（通信もチェックも一切行われません）
 
 ## プレフィックスの変更は安全です
 
@@ -103,8 +110,10 @@ curl -H "X-RLT-Key: rlt_xxxxxxxx" \
 
 ## 開発
 
+開発コマンドはリポジトリのルート（`rakuten-link-tracker/` の一つ上の階層。`.wp-env.json` がある場所）から実行してください。
+
 ```powershell
-docker run --rm -v "${PWD}:/app" -w /app composer:2 install
+docker run --rm -v "${PWD}\rakuten-link-tracker:/app" -w /app composer:2 install
 npx @wordpress/env start
 
 # 単体テスト（WordPress 非依存）
