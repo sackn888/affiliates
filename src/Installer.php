@@ -13,6 +13,8 @@ use RLT\Frontend\PostSync;
  */
 final class Installer {
 
+	// プラグインのバージョン（Plugin::VERSION）とは意図的に独立している。
+	// DBスキーマが変わらない限り更新しない。
 	public const DB_VERSION     = '1.0.0';
 	public const VERSION_OPTION = 'rlt_db_version';
 	public const CAPABILITY     = 'rlt_view_stats';
