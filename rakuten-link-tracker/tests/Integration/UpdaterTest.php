@@ -11,10 +11,12 @@ final class UpdaterTest extends WP_UnitTestCase {
 	private const TRANSIENT = 'rlt_updater_remote_check';
 
 	private int $httpCalls = 0;
+	private ?string $lastRequestedUrl = null;
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->httpCalls = 0;
+		$this->httpCalls       = 0;
+		$this->lastRequestedUrl = null;
 		delete_transient( self::TRANSIENT );
 	}
 
@@ -26,13 +28,15 @@ final class UpdaterTest extends WP_UnitTestCase {
 
 	/**
 	 * Stubs wp_remote_get() via pre_http_request so no test ever hits the
-	 * real network, and counts how many times it was invoked.
+	 * real network, and counts how many times (and with which URL) it was
+	 * invoked.
 	 */
 	private function stubHttp( string $body, int $code = 200, bool $asError = false ): void {
 		add_filter(
 			'pre_http_request',
 			function ( $preempt, $args, $url ) use ( $body, $code, $asError ) {
 				++$this->httpCalls;
+				$this->lastRequestedUrl = $url;
 
 				if ( $asError ) {
 					return new \WP_Error( 'http_request_failed', 'boom' );
@@ -76,6 +80,30 @@ PHP;
 		$updater = new Updater( 'octocat/rakuten-link-tracker' );
 
 		$this->assertSame( '9.9.9', $updater->remoteVersion() );
+	}
+
+	public function test_remote_version_requests_the_raw_url_at_the_repository_root_when_no_path_is_configured(): void {
+		$this->stubHttp( $this->realisticHeader( '9.9.9' ) );
+
+		$updater = new Updater( 'octocat/rakuten-link-tracker', 'master' );
+		$updater->remoteVersion();
+
+		$this->assertSame(
+			'https://raw.githubusercontent.com/octocat/rakuten-link-tracker/master/rakuten-link-tracker.php',
+			$this->lastRequestedUrl
+		);
+	}
+
+	public function test_remote_version_requests_the_raw_url_including_the_in_repo_path(): void {
+		$this->stubHttp( $this->realisticHeader( '9.9.9' ) );
+
+		$updater = new Updater( 'sackn888/affiliates', 'main', 'rakuten-link-tracker' );
+		$updater->remoteVersion();
+
+		$this->assertSame(
+			'https://raw.githubusercontent.com/sackn888/affiliates/main/rakuten-link-tracker/rakuten-link-tracker.php',
+			$this->lastRequestedUrl
+		);
 	}
 
 	public function test_remote_version_is_null_on_wp_error(): void {
@@ -237,6 +265,64 @@ PHP;
 
 		$this->assertSame( $source, $result );
 		$this->assertDirectoryExists( untrailingslashit( $source ) );
+
+		$this->deleteDirRecursive( $parent );
+	}
+
+	public function test_fix_source_dir_descends_into_the_configured_in_repo_path(): void {
+		$updater  = new Updater( 'sackn888/affiliates', 'main', 'rakuten-link-tracker' );
+		$basename = plugin_basename( RLT_PLUGIN_FILE );
+
+		$parent = trailingslashit( get_temp_dir() ) . 'rlt-updater-test-' . uniqid() . '/';
+		wp_mkdir_p( $parent );
+		$source = trailingslashit( $parent . 'affiliates-main' );
+		wp_mkdir_p( $source );
+		$inner = trailingslashit( $source . dirname( $basename ) );
+		wp_mkdir_p( $inner );
+		file_put_contents( $inner . 'rakuten-link-tracker.php', '<?php // marker' );
+
+		$result = $updater->fixSourceDir(
+			untrailingslashit( $source ),
+			$parent,
+			null,
+			array(
+				'plugin' => $basename,
+				'type'   => 'plugin',
+				'action' => 'update',
+			)
+		);
+
+		$this->assertSame( $inner, $result );
+		$this->assertFileExists( $inner . 'rakuten-link-tracker.php' );
+
+		$this->deleteDirRecursive( $parent );
+	}
+
+	public function test_fix_source_dir_returns_a_wp_error_when_the_in_repo_path_is_missing(): void {
+		$updater  = new Updater( 'sackn888/affiliates', 'main', 'rakuten-link-tracker' );
+		$basename = plugin_basename( RLT_PLUGIN_FILE );
+
+		$parent = trailingslashit( get_temp_dir() ) . 'rlt-updater-test-' . uniqid() . '/';
+		wp_mkdir_p( $parent );
+		// The archive root exists, but the expected in-repo plugin directory
+		// inside it does not -- e.g. the path was misconfigured or the
+		// repository's layout changed.
+		$source = trailingslashit( $parent . 'affiliates-main' );
+		wp_mkdir_p( $source );
+
+		$result = $updater->fixSourceDir(
+			untrailingslashit( $source ),
+			$parent,
+			null,
+			array(
+				'plugin' => $basename,
+				'type'   => 'plugin',
+				'action' => 'update',
+			)
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'rlt_updater_missing_plugin_dir', $result->get_error_code() );
 
 		$this->deleteDirRecursive( $parent );
 	}

@@ -22,10 +22,19 @@ final class Updater {
 
 	private string $repo;
 	private string $branch;
+	private string $path;
 
-	public function __construct( string $repo, string $branch = 'master' ) {
+	/**
+	 * @param string $repo   GitHub "owner/name" repository.
+	 * @param string $branch Default branch the updater tracks.
+	 * @param string $path   Path, relative to the repository root, of the
+	 *                       directory the plugin actually lives in. Empty
+	 *                       when the plugin sits at the repository root.
+	 */
+	public function __construct( string $repo, string $branch = 'master', string $path = '' ) {
 		$this->repo   = $repo;
 		$this->branch = $branch;
+		$this->path   = trim( $path, '/' );
 	}
 
 	/**
@@ -35,7 +44,18 @@ final class Updater {
 	 * a repository that doesn't exist.
 	 */
 	private function isConfigured(): bool {
-		return false === strpos( $this->repo, 'OWNER' );
+		return '' !== $this->repo && false === strpos( $this->repo, 'OWNER' );
+	}
+
+	/**
+	 * The path, relative to the repository root, to the plugin's own file --
+	 * either "{path}/rakuten-link-tracker.php" or, when the plugin sits at
+	 * the repository root, just "rakuten-link-tracker.php".
+	 */
+	private function pluginFileRepoPath(): string {
+		return '' === $this->path
+			? 'rakuten-link-tracker.php'
+			: $this->path . '/rakuten-link-tracker.php';
 	}
 
 	public function register(): void {
@@ -69,9 +89,10 @@ final class Updater {
 		}
 
 		$url = sprintf(
-			'https://raw.githubusercontent.com/%s/%s/rakuten-link-tracker.php',
+			'https://raw.githubusercontent.com/%s/%s/%s',
 			$this->repo,
-			$this->branch
+			$this->branch,
+			$this->pluginFileRepoPath()
 		);
 
 		$response = wp_remote_get( $url, array( 'timeout' => 5 ) );
@@ -180,10 +201,15 @@ final class Updater {
 	 * Hooked to upgrader_source_selection.
 	 *
 	 * GitHub's branch zipball extracts to "{name}-{branch}/", not the
-	 * plugin's real directory name. Left alone, WordPress installs the
-	 * update into a second, differently-named plugin directory and the site
-	 * ends up running two copies with the old one still active. This renames
-	 * the extracted directory to match before WordPress moves it into place.
+	 * plugin's real directory name -- and when the plugin is published from
+	 * an in-repo path (RLT_GITHUB_PATH), that extracted directory is the
+	 * whole repository, with the plugin one or more levels deeper inside it
+	 * (e.g. "affiliates-main/rakuten-link-tracker/"). Left alone, WordPress
+	 * would install either a second, differently-named plugin directory, or
+	 * the entire repository in place of the plugin. This descends into the
+	 * configured in-repo path first (if any), then renames the resulting
+	 * directory to match the plugin's real directory name before WordPress
+	 * moves it into place.
 	 */
 	public function fixSourceDir( $source, $remoteSource, $upgrader, $args ) {
 		if ( ! $this->isConfigured() || ! is_string( $source ) ) {
@@ -204,15 +230,36 @@ final class Updater {
 		$pluginDirName = dirname( $basename );
 		$sourceTrimmed = untrailingslashit( $source );
 
+		if ( '' !== $this->path ) {
+			$inner = untrailingslashit( $sourceTrimmed . '/' . $this->path );
+
+			if ( ! is_dir( $inner ) ) {
+				// The archive doesn't contain the plugin directory where it
+				// was expected. Installing $source as-is here would put the
+				// whole repository in place of the plugin on every site that
+				// updates -- refuse instead.
+				return new \WP_Error(
+					'rlt_updater_missing_plugin_dir',
+					sprintf(
+						/* translators: %s: expected in-repo path to the plugin. */
+						__( '更新用アーカイブの中に想定したプラグインディレクトリ（%s）が見つかりませんでした。', 'rakuten-link-tracker' ),
+						$this->path
+					)
+				);
+			}
+
+			$sourceTrimmed = $inner;
+		}
+
 		if ( basename( $sourceTrimmed ) === $pluginDirName ) {
-			return $source;
+			return trailingslashit( $sourceTrimmed );
 		}
 
 		$desired = trailingslashit( dirname( $sourceTrimmed ) ) . $pluginDirName;
 
 		global $wp_filesystem;
 
-		if ( $wp_filesystem && $wp_filesystem->move( $source, $desired ) ) {
+		if ( $wp_filesystem && $wp_filesystem->move( $sourceTrimmed, $desired ) ) {
 			return trailingslashit( $desired );
 		}
 
@@ -220,7 +267,7 @@ final class Updater {
 			return trailingslashit( $desired );
 		}
 
-		return $source;
+		return trailingslashit( $sourceTrimmed );
 	}
 
 	/**

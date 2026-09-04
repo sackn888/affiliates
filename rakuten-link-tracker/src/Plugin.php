@@ -59,7 +59,7 @@ final class Plugin {
 		// when an admin might see the result, or when WP-Cron runs the
 		// periodic update check.
 		if ( is_admin() || wp_doing_cron() ) {
-			( new Updater( RLT_GITHUB_REPO ) )->register();
+			( new Updater( RLT_GITHUB_REPO, RLT_GITHUB_BRANCH, RLT_GITHUB_PATH ) )->register();
 		}
 	}
 }

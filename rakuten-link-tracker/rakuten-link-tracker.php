@@ -20,10 +20,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'RLT_PLUGIN_FILE', __FILE__ );
 
-// GitHub repository ("owner/name") the self-updater checks for new releases.
-// Left as the OWNER placeholder until the account name is filled in; the
-// updater no-ops cleanly while it does.
-define( 'RLT_GITHUB_REPO', 'OWNER/rakuten-link-tracker' );
+// GitHub repository ("owner/name"), branch, and in-repo path the
+// self-updater checks for new releases. The plugin is published inside a
+// subdirectory of a repository that can host other tools alongside it, so
+// "the plugin" and "the repository root" are not the same directory --
+// RLT_GITHUB_PATH is how the updater knows where inside the repository the
+// plugin actually lives. Any of these left as the OWNER placeholder (or
+// empty) makes the updater no-op cleanly.
+define( 'RLT_GITHUB_REPO', 'sackn888/affiliates' );
+define( 'RLT_GITHUB_BRANCH', 'main' );
+define( 'RLT_GITHUB_PATH', 'rakuten-link-tracker' );
 
 // This plugin is installed straight from its git repository -- on shared
 // hosting there is no `composer install` step, no build, no release ZIP.
