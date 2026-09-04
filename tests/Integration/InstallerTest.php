@@ -147,6 +147,26 @@ final class InstallerTest extends WP_UnitTestCase {
 		$this->assertSame( Installer::DB_VERSION, get_option( Installer::VERSION_OPTION ) );
 	}
 
+	public function test_activation_registers_the_go_rewrite_rule(): void {
+		delete_option( 'rewrite_rules' );
+
+		Installer::activate();
+		$this->realSchemaDdlRan = true;
+
+		$rules = get_option( 'rewrite_rules' );
+		$this->assertIsArray( $rules, 'Expected activation to leave a rewrite_rules option behind.' );
+
+		$found = false;
+		foreach ( array_keys( $rules ) as $key ) {
+			if ( str_starts_with( (string) $key, '^go/' ) ) {
+				$found = true;
+				break;
+			}
+		}
+
+		$this->assertTrue( $found, 'Expected a rewrite rule for the /go/ prefix after activation -- this is the direct regression test for the reported 404.' );
+	}
+
 	public function test_administrator_gets_the_capability(): void {
 		Installer::addCapabilities();
 

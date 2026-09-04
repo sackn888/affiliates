@@ -21,6 +21,11 @@ final class RedirectHandler {
 
 	public const QUERY_VAR = 'rlt_code';
 
+	/**
+	 * Throttles the self-healing rewrite-rule check in maybeRepairRewriteRules().
+	 */
+	public const REPAIR_TRANSIENT = 'rlt_rewrite_repaired';
+
 	private LinkRepository $links;
 	private EventRepository $events;
 
@@ -33,6 +38,7 @@ final class RedirectHandler {
 		add_action( 'init', array( $this, 'addRewriteRule' ) );
 		add_filter( 'query_vars', array( $this, 'addQueryVar' ) );
 		add_action( 'template_redirect', array( $this, 'handle' ), 0 );
+		add_action( 'admin_init', array( $this, 'maybeRepairRewriteRules' ) );
 	}
 
 	/**
@@ -48,11 +54,65 @@ final class RedirectHandler {
 	public function addRewriteRule(): void {
 		foreach ( Settings::allPrefixes() as $prefix ) {
 			add_rewrite_rule(
-				'^' . $prefix . '/([a-z0-9]{4,16})/?$',
+				self::ruleKeyFor( $prefix ),
 				'index.php?' . self::QUERY_VAR . '=$matches[1]',
 				'top'
 			);
 		}
+	}
+
+	/**
+	 * The `rewrite_rules` option key that a given prefix's rule is stored
+	 * under. Shared between addRewriteRule() (which builds it) and
+	 * maybeRepairRewriteRules() (which looks it up), so the two can never
+	 * drift apart.
+	 */
+	private static function ruleKeyFor( string $prefix ): string {
+		return '^' . $prefix . '/([a-z0-9]{4,16})/?$';
+	}
+
+	/**
+	 * Self-heals a site whose cached rewrite rules are missing the current
+	 * prefix's /go/ rule.
+	 *
+	 * Before this fix, Installer::activate() called flush_rewrite_rules()
+	 * without ever having run addRewriteRule() first -- activation happens
+	 * after `init` has already fired for that request, so the rule was never
+	 * registered before the flush cached the rule set. Every site that
+	 * activated the plugin while that bug existed is stuck with a
+	 * /go/-less rule set, and a plugin *update* never re-runs the activation
+	 * hook, so those sites would stay broken forever without an explicit
+	 * repair. This runs on admin_init only -- never on a visitor request --
+	 * and is throttled by a transient so a site that genuinely cannot
+	 * persist rewrite rules (e.g. the web server ignores .htaccess) doesn't
+	 * pay for flush_rewrite_rules(), which is expensive, on every single
+	 * admin page load.
+	 */
+	public function maybeRepairRewriteRules(): void {
+		// Rewrite rules don't apply at all with plain permalinks; /go/ can
+		// never work either way, so there is nothing to repair.
+		if ( '' === (string) get_option( 'permalink_structure' ) ) {
+			return;
+		}
+
+		if ( false !== get_transient( self::REPAIR_TRANSIENT ) ) {
+			return;
+		}
+
+		// Set the throttle before doing the (expensive) work, not after: a
+		// site where the flush below doesn't actually fix anything must still
+		// not retry it on every admin page load.
+		set_transient( self::REPAIR_TRANSIENT, 1, HOUR_IN_SECONDS );
+
+		$rules = get_option( 'rewrite_rules' );
+		$key   = self::ruleKeyFor( Settings::prefix() );
+
+		if ( is_array( $rules ) && array_key_exists( $key, $rules ) ) {
+			return;
+		}
+
+		$this->addRewriteRule();
+		flush_rewrite_rules();
 	}
 
 	/**

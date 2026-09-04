@@ -45,6 +45,7 @@ final class AdminMenu {
 	public function register(): void {
 		add_action( 'admin_menu', array( $this, 'addPages' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue' ) );
+		add_action( 'admin_notices', array( $this, 'maybePermalinkNotice' ) );
 
 		$this->linkDetailPage->register();
 		$this->settingsPage->register();
@@ -105,6 +106,34 @@ final class AdminMenu {
 		}
 
 		wp_enqueue_style( 'rlt-admin', Plugin::url( 'assets/admin.css' ), array(), Plugin::VERSION );
+	}
+
+	/**
+	 * Warns on the plugin's own screens that /go/ short URLs cannot work at
+	 * all with plain permalinks -- every link would 404 with no other symptom,
+	 * so a silent failure here is worse than a visible notice.
+	 */
+	public function maybePermalinkNotice(): void {
+		if ( '' !== (string) get_option( 'permalink_structure' ) ) {
+			return;
+		}
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$screen = get_current_screen();
+
+		if ( null === $screen || ( ! str_contains( $screen->id, self::SLUG ) && ! str_contains( $screen->id, 'rlt-' ) ) ) {
+			return;
+		}
+
+		printf(
+			'<div class="notice notice-error"><p>%s <a href="%s">%s</a></p></div>',
+			esc_html__( '「基本」以外のパーマリンク設定にしないと、短縮URL（/go/）が機能しません。', 'rakuten-link-tracker' ),
+			esc_url( admin_url( 'options-permalink.php' ) ),
+			esc_html__( 'パーマリンク設定を今すぐ変更', 'rakuten-link-tracker' )
+		);
 	}
 
 	/**

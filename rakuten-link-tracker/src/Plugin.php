@@ -9,7 +9,7 @@ namespace RLT;
  */
 final class Plugin {
 
-	public const VERSION = '1.0.1';
+	public const VERSION = '1.0.2';
 
 	private static ?Plugin $instance = null;
 

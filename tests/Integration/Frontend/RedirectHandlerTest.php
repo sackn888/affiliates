@@ -221,4 +221,82 @@ final class RedirectHandlerTest extends WP_UnitTestCase {
 	public function test_query_var_is_registered(): void {
 		$this->assertContains( RedirectHandler::QUERY_VAR, $this->handler->addQueryVar( array() ) );
 	}
+
+	private function withPrettyPermalinks(): void {
+		$this->set_permalink_structure( '/%postname%/' );
+	}
+
+	public function test_repair_guard_adds_the_rule_when_it_is_missing(): void {
+		$this->withPrettyPermalinks();
+		delete_transient( RedirectHandler::REPAIR_TRANSIENT );
+		update_option( 'rewrite_rules', array( 'unrelated/?$' => 'index.php' ) );
+
+		$this->handler->maybeRepairRewriteRules();
+
+		$rules = get_option( 'rewrite_rules' );
+		$this->assertIsArray( $rules );
+		$this->assertArrayHasKey( '^go/([a-z0-9]{4,16})/?$', $rules );
+	}
+
+	public function test_repair_guard_does_nothing_when_the_rule_is_already_present(): void {
+		$this->withPrettyPermalinks();
+		delete_transient( RedirectHandler::REPAIR_TRANSIENT );
+		update_option(
+			'rewrite_rules',
+			array( '^go/([a-z0-9]{4,16})/?$' => 'index.php?rlt_code=$matches[1]' )
+		);
+
+		$before = get_option( 'rewrite_rules' );
+		$this->handler->maybeRepairRewriteRules();
+		$after = get_option( 'rewrite_rules' );
+
+		$this->assertSame( $before, $after );
+	}
+
+	public function test_repair_guard_does_not_run_twice_while_its_transient_is_set(): void {
+		$this->withPrettyPermalinks();
+		update_option( 'rewrite_rules', array( 'unrelated/?$' => 'index.php' ) );
+		set_transient( RedirectHandler::REPAIR_TRANSIENT, 1, HOUR_IN_SECONDS );
+
+		$this->handler->maybeRepairRewriteRules();
+
+		$rules = get_option( 'rewrite_rules' );
+		$this->assertIsArray( $rules );
+		$this->assertArrayNotHasKey( '^go/([a-z0-9]{4,16})/?$', $rules, 'The throttle should have skipped the repair entirely.' );
+
+		delete_transient( RedirectHandler::REPAIR_TRANSIENT );
+	}
+
+	public function test_repair_guard_does_nothing_with_plain_permalinks(): void {
+		$this->set_permalink_structure( '' );
+		delete_transient( RedirectHandler::REPAIR_TRANSIENT );
+		update_option( 'rewrite_rules', array( 'unrelated/?$' => 'index.php' ) );
+
+		$this->handler->maybeRepairRewriteRules();
+
+		$rules = get_option( 'rewrite_rules' );
+		$this->assertIsArray( $rules );
+		$this->assertArrayNotHasKey( '^go/([a-z0-9]{4,16})/?$', $rules );
+		$this->assertFalse( get_transient( RedirectHandler::REPAIR_TRANSIENT ), 'Plain permalinks should skip the check entirely, including the throttle.' );
+	}
+
+	public function test_repair_guard_notices_a_changed_prefix_and_repairs_it(): void {
+		$this->withPrettyPermalinks();
+		delete_transient( RedirectHandler::REPAIR_TRANSIENT );
+
+		// The old prefix's rule is present, but the prefix has since changed --
+		// the cached rule set now lacks the *current* prefix's rule.
+		update_option(
+			'rewrite_rules',
+			array( '^go/([a-z0-9]{4,16})/?$' => 'index.php?rlt_code=$matches[1]' )
+		);
+		Settings::update( array( 'prefix' => 'out' ) );
+		delete_transient( RedirectHandler::REPAIR_TRANSIENT );
+
+		$this->handler->maybeRepairRewriteRules();
+
+		$rules = get_option( 'rewrite_rules' );
+		$this->assertIsArray( $rules );
+		$this->assertArrayHasKey( '^out/([a-z0-9]{4,16})/?$', $rules );
+	}
 }

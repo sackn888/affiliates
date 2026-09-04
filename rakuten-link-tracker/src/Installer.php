@@ -57,7 +57,15 @@ final class Installer {
 
 		Cron::schedule();
 
-		// The /go/{code} rule is registered on init; flush so it takes effect now.
+		// RedirectHandler::addRewriteRule() is normally hooked to `init`, but
+		// activation runs after `init` has already fired for this request, so
+		// that hook never runs here. Calling flush_rewrite_rules() without
+		// registering the rule first would regenerate and cache the rule set
+		// WITHOUT the /go/ rule, 404ing every short URL on the site until
+		// something else happens to flush again. Register it explicitly before
+		// flushing, mirroring what SettingsPage::handleSave() does for a
+		// changed prefix.
+		( new \RLT\Frontend\RedirectHandler() )->addRewriteRule();
 		flush_rewrite_rules();
 	}
 
