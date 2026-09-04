@@ -1,0 +1,6 @@
+/vendor/
+/node_modules/
+.phpunit.result.cache
+phpunit-unit.xml
+phpunit-integration.xml
+/.superpowers/

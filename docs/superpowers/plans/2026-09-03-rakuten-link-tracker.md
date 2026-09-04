@@ -29,19 +29,23 @@
 
 ### 環境コマンド（PowerShell）
 
+**前提**: Docker Desktop が起動していること。起動していないと `docker` / `wp-env` の全コマンドが失敗する。
+`wp-env` は `npx @wordpress/env` と書く（`npx wp-env` ではパッケージが解決されない）。
+コンテナ内で実行するコマンドは `--` の後ろにトークンとして渡す（引用符で1つの文字列にまとめると失敗する）。
+
 ```powershell
 # 依存インストール（PHP を Windows に入れずに Docker の composer イメージで実行）
 docker run --rm -v "${PWD}:/app" -w /app composer:2 install
 
 # wp-env の起動 / 停止
-npx wp-env start
-npx wp-env stop
+npx @wordpress/env start
+npx @wordpress/env stop
 
 # 単体テスト（WordPress 非依存）
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist
 
 # 統合テスト（WordPress 込み）
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist
 ```
 
 ---
@@ -111,6 +115,7 @@ npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vend
 .phpunit.result.cache
 phpunit-unit.xml
 phpunit-integration.xml
+/.superpowers/
 ```
 
 - [ ] **Step 2: `composer.json` を作る**
@@ -270,8 +275,8 @@ final class SmokeTest extends TestCase {
 
 ```powershell
 docker run --rm -v "${PWD}:/app" -w /app composer:2 install
-npx wp-env start
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist"
+npx @wordpress/env start
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist
 ```
 
 Expected: FAIL — `Class "RLT\Plugin" not found`
@@ -366,7 +371,7 @@ final class Plugin {
 - [ ] **Step 10: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist
 ```
 
 Expected: PASS — `OK (1 test, 1 assertion)`
@@ -391,7 +396,7 @@ final class BootstrapTest extends WP_UnitTestCase {
 ```
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist
 ```
 
 Expected: PASS — `OK (1 test, 1 assertion)`
@@ -481,12 +486,32 @@ final class CodeGeneratorTest extends TestCase {
 
 	public static function invalidCodes(): array {
 		return array(
-			'empty'         => array( '' ),
-			'too short'     => array( 'abc' ),
-			'too long'      => array( 'abcdefghijklmnopq' ),
-			'has slash'     => array( 'abc/de' ),
-			'has uppercase' => array( 'ABCDEF' ),
-			'has dot'       => array( 'abcd.f' ),
+			'empty'             => array( '' ),
+			'too short'         => array( 'abc' ),
+			'too long'          => array( 'abcdefghijklmnopq' ),
+			'has slash'         => array( 'abc/de' ),
+			'has uppercase'     => array( 'ABCDEF' ),
+			'has dot'           => array( 'abcd.f' ),
+			'trailing newline'  => array( "abcdef\n" ),
+			'leading newline'   => array( "\nabcdef" ),
+			'trailing space'    => array( 'abcdef ' ),
+			'embedded newline'  => array( "abc\ndef" ),
+			'null byte'         => array( "abcdef\0" ),
+			'too long by one'   => array( 'abcdefghjkmnpqrs2' ),
+		);
+	}
+
+	/**
+	 * @dataProvider boundaryCodes
+	 */
+	public function test_is_valid_accepts_the_length_boundaries( string $code ): void {
+		$this->assertTrue( CodeGenerator::isValid( $code ) );
+	}
+
+	public static function boundaryCodes(): array {
+		return array(
+			'minimum length' => array( 'abcd' ),
+			'maximum length' => array( 'abcdefghjkmnpqrs' ),
 		);
 	}
 }
@@ -495,7 +520,7 @@ final class CodeGeneratorTest extends TestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter CodeGeneratorTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter CodeGeneratorTest
 ```
 
 Expected: FAIL — `Class "RLT\Support\CodeGenerator" not found`
@@ -528,8 +553,11 @@ final class CodeGenerator {
 	/**
 	 * Codes accepted by the rewrite rule. Kept wider than LENGTH so codes issued
 	 * by a future version with a different length still resolve.
+	 *
+	 * Use \A and \z instead of ^ and $ to avoid matching trailing newlines,
+	 * since $ in PHP regex matches before a trailing newline even without the 'm' modifier.
 	 */
-	private const VALID_PATTERN = '/^[' . self::ALPHABET . ']{4,16}$/';
+	private const VALID_PATTERN = '/\A[' . self::ALPHABET . ']{4,16}\z/';
 
 	public static function generate(): string {
 		$max  = strlen( self::ALPHABET ) - 1;
@@ -551,10 +579,10 @@ final class CodeGenerator {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter CodeGeneratorTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter CodeGeneratorTest
 ```
 
-Expected: PASS — `OK (11 tests, ...)`
+Expected: PASS — `OK (19 tests, ...)`
 
 - [ ] **Step 5: コミット**
 
@@ -696,7 +724,7 @@ final class DeviceDetectorTest extends TestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter 'BotFilterTest|DeviceDetectorTest'"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter 'BotFilterTest|DeviceDetectorTest'
 ```
 
 Expected: FAIL — `Class "RLT\Support\BotFilter" not found`
@@ -834,7 +862,7 @@ final class DeviceDetector {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter 'BotFilterTest|DeviceDetectorTest'"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter 'BotFilterTest|DeviceDetectorTest'
 ```
 
 Expected: PASS
@@ -910,10 +938,22 @@ final class VisitorHashTest extends TestCase {
 		$this->assertNotSame( $today, $tomorrow );
 	}
 
-	public function test_hash_does_not_contain_the_raw_ip(): void {
+	public function test_output_is_a_hex_digest_not_the_input(): void {
 		$hash = VisitorHash::make( '203.0.113.5', 'Mozilla/5.0', 'salt' );
 
+		// Irreversibility is a design property of hashing, not something a unit test can
+		// establish. But we can verify that the output is not plaintext input.
 		$this->assertStringNotContainsString( '203.0.113.5', $hash );
+		$this->assertStringNotContainsString( 'Mozilla/5.0', $hash );
+	}
+
+	public function test_a_pipe_in_the_user_agent_cannot_forge_another_visitors_hash(): void {
+		// ユーザーエージェントは訪問者が自由に決められる。区切り文字をまたいで
+		// 別の訪問者のハッシュに一致させられてはならない。
+		$crafted = VisitorHash::make( '203.0.113.5', 'Mozilla|salt-a', 'salt-b' );
+		$honest  = VisitorHash::make( '203.0.113.5', 'Mozilla', 'salt-a|salt-b' );
+
+		$this->assertNotSame( $crafted, $honest );
 	}
 
 	public function test_new_salt_is_random_hex(): void {
@@ -929,7 +969,7 @@ final class VisitorHashTest extends TestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter VisitorHashTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter VisitorHashTest
 ```
 
 Expected: FAIL — `Class "RLT\Support\VisitorHash" not found`
@@ -946,18 +986,24 @@ declare(strict_types=1);
 namespace RLT\Support;
 
 /**
- * Derives a non-reversible visitor identifier.
+ * Derives a visitor identifier from IP and user-agent.
  *
  * The raw IP address is never stored anywhere. Because the salt rotates daily,
  * the same visitor produces a different hash tomorrow, so "unique" counts are
- * per-day only. That is an intentional privacy trade-off, not a bug.
+ * per-day only. This is an intentional privacy trade-off. Note that with a known
+ * salt, the digest is not resistant to brute-force attacks over the IP × user-agent space.
  *
  * Pure: no WordPress dependency.
  */
 final class VisitorHash {
 
 	public static function make( string $ip, string $userAgent, string $salt ): string {
-		return hash( 'sha256', $ip . '|' . $userAgent . '|' . $salt );
+		// Hash each field independently so an attacker cannot use a pipe character
+		// in the user-agent to forge a hash with a different salt value.
+		return hash(
+			'sha256',
+			hash( 'sha256', $ip ) . hash( 'sha256', $userAgent ) . $salt
+		);
 	}
 
 	public static function newSalt(): string {
@@ -969,10 +1015,10 @@ final class VisitorHash {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter VisitorHashTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter VisitorHashTest
 ```
 
-Expected: PASS — `OK (7 tests, ...)`
+Expected: PASS — `OK (8 tests, 11 assertions)`
 
 - [ ] **Step 5: コミット**
 
@@ -996,6 +1042,7 @@ git commit -m "feat: IPを保存しない訪問者ハッシュを追加"
 - Produces:
   - `RLT\Support\LinkExtractor::__construct(array $hosts, string $shortBase)` — `$hosts` は `['hb.afl.rakuten.co.jp', ...]`、`$shortBase` は `https://example.com/go/`
   - `RLT\Support\LinkExtractor::extract(string $html): array` — `array<int, array{url: string, label: string}>` を、本文中の初出順・URLでユニーク化して返す
+  - `RLT\Support\LinkExtractor::extractHrefs(string $html): array` — `string[]`。本文中のすべての `<a href>` の値をデコード済みで文書順に返す（ホストや既変換の絞り込みはしない）。PostSync が「本文にまだ短縮URLが残っているか」を href スコープで判定するために使う
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -1161,6 +1208,35 @@ final class LinkExtractorTest extends TestCase {
 		$this->assertLessThanOrEqual( 255, strlen( $links[0]['label'] ) );
 	}
 
+	/**
+	 * @dataProvider labelsThatCutMidCharacter
+	 */
+	public function test_truncated_label_is_still_valid_utf8( string $label ): void {
+		$html = '<a href="https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x">' . $label . '</a>';
+
+		$result = $this->extractor()->extract( $html )[0]['label'];
+
+		$this->assertLessThanOrEqual( 255, strlen( $result ) );
+		// 途中で切れた多バイト文字が残ると DB 書き込みで壊れる。
+		$this->assertSame(
+			$result,
+			mb_convert_encoding( $result, 'UTF-8', 'UTF-8' ),
+			'Truncated label is not valid UTF-8.'
+		);
+	}
+
+	public static function labelsThatCutMidCharacter(): array {
+		return array(
+			// 1バイトの接頭辞を置くと、255バイト目が3バイト文字の途中に落ちる。
+			'3-byte cut after one byte'   => array( 'x' . str_repeat( 'あ', 300 ) ),
+			'3-byte cut after two bytes'  => array( 'xx' . str_repeat( 'あ', 300 ) ),
+			'4-byte emoji boundary'       => array( str_repeat( '😀', 100 ) ),
+			'4-byte emoji offset by one'  => array( 'x' . str_repeat( '😀', 100 ) ),
+			'4-byte emoji offset by two'  => array( 'xx' . str_repeat( '😀', 100 ) ),
+			'4-byte emoji offset by three' => array( 'xxx' . str_repeat( '😀', 100 ) ),
+		);
+	}
+
 	public function test_returns_empty_array_for_empty_content(): void {
 		$this->assertSame( array(), $this->extractor()->extract( '' ) );
 	}
@@ -1180,13 +1256,30 @@ final class LinkExtractorTest extends TestCase {
 
 		$this->assertCount( 1, $links );
 	}
+
+	public function test_extract_hrefs_returns_every_anchor_href_decoded(): void {
+		$html = '<a href="https://hb.afl.rakuten.co.jp/hgc/a/?pc=x&amp;m=y">A</a>'
+			. '<a href=\'https://example.com/go/abc123\'>B</a>'
+			. '<img src="https://hb.afl.rakuten.co.jp/hsc/a/?me_id=1">';
+
+		$hrefs = $this->extractor()->extractHrefs( $html );
+
+		$this->assertSame(
+			array( 'https://hb.afl.rakuten.co.jp/hgc/a/?pc=x&m=y', 'https://example.com/go/abc123' ),
+			$hrefs
+		);
+	}
+
+	public function test_extract_hrefs_returns_an_empty_array_for_content_without_links(): void {
+		$this->assertSame( array(), $this->extractor()->extractHrefs( '<p>本文だけ</p>' ) );
+	}
 }
 ```
 
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter LinkExtractorTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter LinkExtractorTest
 ```
 
 Expected: FAIL — `Class "RLT\Support\LinkExtractor" not found`
@@ -1240,7 +1333,20 @@ final class LinkExtractor {
 		// Capture the whole anchor so the inner markup is available for labelling.
 		$pattern = '/<a\b([^>]*?)>(.*?)<\/a\s*>/is';
 
-		if ( ! preg_match_all( $pattern, $html, $matches, PREG_SET_ORDER ) ) {
+		$matchCount = preg_match_all( $pattern, $html, $matches, PREG_SET_ORDER );
+
+		// preg_match_all() returns false (PCRE backtrack/recursion limit hit,
+		// or another engine error) as well as 0 (genuinely no matches). Those
+		// are not the same situation: false means extraction was skipped, not
+		// that the content has no affiliate links, so it must be logged
+		// rather than silently treated like a normal "nothing found" result.
+		if ( false === $matchCount ) {
+			error_log( '[rakuten-link-tracker] LinkExtractor: preg_match_all() failed; link extraction skipped for this content.' );
+
+			return array();
+		}
+
+		if ( 0 === $matchCount ) {
 			return array();
 		}
 
@@ -1267,6 +1373,47 @@ final class LinkExtractor {
 	}
 
 	/**
+	 * Every href value in the content, decoded, in document order.
+	 *
+	 * PostSync needs this to tell "this link is still in the post, already
+	 * shortened" apart from "this link was deleted from the post".
+	 *
+	 * @return string[]
+	 */
+	public function extractHrefs( string $html ): array {
+		if ( '' === trim( $html ) ) {
+			return array();
+		}
+
+		$pattern = '/<a\b([^>]*?)>(.*?)<\/a\s*>/is';
+
+		$matchCount = preg_match_all( $pattern, $html, $matches, PREG_SET_ORDER );
+
+		// See extract() for why false and 0 must be handled differently.
+		if ( false === $matchCount ) {
+			error_log( '[rakuten-link-tracker] LinkExtractor: preg_match_all() failed; href extraction skipped for this content.' );
+
+			return array();
+		}
+
+		if ( 0 === $matchCount ) {
+			return array();
+		}
+
+		$hrefs = array();
+
+		foreach ( $matches as $match ) {
+			$url = $this->hrefFrom( $match[1] );
+
+			if ( null !== $url ) {
+				$hrefs[] = $url;
+			}
+		}
+
+		return $hrefs;
+	}
+
+	/**
 	 * Pull the href value out of an anchor's attribute string.
 	 */
 	private function hrefFrom( string $attributes ): ?string {
@@ -1286,6 +1433,18 @@ final class LinkExtractor {
 	 */
 	private function isTrackable( string $url ): bool {
 		if ( str_starts_with( $url, $this->shortBase ) ) {
+			return false;
+		}
+
+		// parse_url() happily returns a host for non-HTTP schemes too --
+		// parse_url('javascript://hb.afl.rakuten.co.jp/%0aalert(1)') yields
+		// an allowed host with an "authority" that is not really a network
+		// location at all. The host check alone is therefore not sufficient;
+		// only http(s) URLs may be treated as trackable affiliate links,
+		// since the stored target_url is later handed straight to a redirect.
+		$scheme = strtolower( (string) parse_url( $url, PHP_URL_SCHEME ) );
+
+		if ( ! in_array( $scheme, array( 'http', 'https' ), true ) ) {
 			return false;
 		}
 
@@ -1338,7 +1497,16 @@ final class LinkExtractor {
 
 		$cut = substr( $text, 0, self::MAX_LABEL_BYTES );
 
-		return (string) preg_replace( '/[\x80-\xBF]*$|[\xC0-\xFF]$/', '', $cut );
+		// A hard byte cut can land inside a multibyte sequence, leaving a lead
+		// byte with too few (or zero) continuation bytes trailing it. That
+		// trailing fragment is not valid UTF-8 on its own, so the whole
+		// incomplete sequence — lead byte and whatever continuation bytes it
+		// kept — must be dropped, not just the continuation bytes.
+		return (string) preg_replace(
+			'/(?:[\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$/',
+			'',
+			$cut
+		);
 	}
 }
 ```
@@ -1346,10 +1514,10 @@ final class LinkExtractor {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter LinkExtractorTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter LinkExtractorTest
 ```
 
-Expected: PASS — `OK (19 tests, ...)`
+Expected: PASS — `OK (27 tests, ...)`
 
 - [ ] **Step 5: コミット**
 
@@ -1523,13 +1691,50 @@ final class ContentRewriterTest extends TestCase {
 		$this->assertStringContainsString( '<!-- /wp:paragraph -->', $result );
 		$this->assertStringContainsString( self::SHORT, $result );
 	}
+
+	public function test_pcre_failure_returns_the_original_content_not_an_empty_string(): void {
+		$original = ini_get( 'pcre.backtrack_limit' );
+		// 極端に小さい上限にすると preg_replace_callback が null を返す。
+		ini_set( 'pcre.backtrack_limit', '1' );
+
+		try {
+			$html = '<a href="' . self::AFFILIATE . '">' . str_repeat( 'ホテル', 2000 ) . '</a>';
+
+			$result = $this->rewriter->rewrite( $html, array( self::AFFILIATE => self::SHORT ) );
+
+			// 記事本文を空にするくらいなら、リンクを書き換えないほうが遥かにマシ。
+			$this->assertNotSame( '', $result );
+		} finally {
+			ini_set( 'pcre.backtrack_limit', (string) $original );
+		}
+	}
+
+	public function test_round_trip_preserves_an_encoded_ampersand(): void {
+		$affiliate = 'https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x&m=y&scid=z';
+		$original  = '<p><a href="https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x&amp;m=y&amp;scid=z">ホテル</a></p>';
+
+		$shortened = $this->rewriter->rewrite( $original, array( $affiliate => self::SHORT ) );
+		$restored  = $this->rewriter->restore( $shortened, array( self::SHORT => $affiliate ) );
+
+		$this->assertStringContainsString( self::SHORT, $shortened );
+		$this->assertSame( $original, $restored );
+	}
+
+	public function test_href_with_surrounding_whitespace_is_still_rewritten(): void {
+		// LinkExtractor は trim してから map のキーを作るため、こちらも合わせないと取りこぼす。
+		$html = '<a href=" ' . self::AFFILIATE . ' ">ホテル</a>';
+
+		$result = $this->rewriter->rewrite( $html, array( self::AFFILIATE => self::SHORT ) );
+
+		$this->assertStringContainsString( self::SHORT, $result );
+	}
 }
 ```
 
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter ContentRewriterTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter ContentRewriterTest
 ```
 
 Expected: FAIL — `Class "RLT\Support\ContentRewriter" not found`
@@ -1578,23 +1783,52 @@ final class ContentRewriter {
 			return $html;
 		}
 
-		return (string) preg_replace_callback(
+		$result = preg_replace_callback(
 			'/(<a\b[^>]*?\bhref\s*=\s*)("([^"]*)"|\'([^\']*)\')/i',
 			static function ( array $m ) use ( $map ): string {
 				$quote = str_starts_with( $m[2], '"' ) ? '"' : "'";
 				$value = '"' === $quote ? $m[3] : $m[4];
 
-				// WordPress may store & as &amp;. Compare on the decoded form.
-				$decoded = html_entity_decode( $value, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				// WordPress may store & as &amp;, and a value may carry
+				// incidental surrounding whitespace (a common paste
+				// artifact). Trim before decoding so the lookup key here
+				// matches exactly how LinkExtractor::hrefFrom() built the
+				// map's keys; only the lookup is trimmed, the rebuilt
+				// attribute below still uses the untouched $value.
+				$decoded = html_entity_decode( trim( $value ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 
 				if ( ! isset( $map[ $decoded ] ) ) {
 					return $m[0];
 				}
 
-				return $m[1] . $quote . $map[ $decoded ] . $quote;
+				// The replacement can itself contain characters such as &
+				// that must be re-encoded for the attribute to stay valid
+				// HTML: restore() writes back decoded Rakuten URLs, which
+				// routinely carry several query parameters joined by &, and
+				// WordPress expects those stored as &amp;. Encoding is a
+				// no-op for the short URLs used in the rewrite direction,
+				// so this is safe in both directions.
+				$replacement = htmlspecialchars( $map[ $decoded ], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+				return $m[1] . $quote . $replacement . $quote;
 			},
 			$html
 		);
+
+		if ( null === $result ) {
+			// preg_replace_callback() returns null when PCRE hits its
+			// backtrack/recursion limit (or another engine error). The
+			// caller writes this return value straight into post_content,
+			// so returning '' here would replace the user's entire
+			// published article with an empty string. Returning $html
+			// unrewritten only costs some tracking data on this save,
+			// which is by far the safer failure mode.
+			error_log( '[rakuten-link-tracker] ContentRewriter: preg_replace_callback() failed; content left unrewritten.' );
+
+			return $html;
+		}
+
+		return $result;
 	}
 }
 ```
@@ -1602,10 +1836,21 @@ final class ContentRewriter {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter ContentRewriterTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter ContentRewriterTest
 ```
 
-Expected: PASS — `OK (14 tests, ...)`
+Expected: PASS — `OK (17 tests, ...)`
+
+`swap()` returning `''` on a PCRE backtrack/recursion-limit failure would empty the
+caller's `post_content`, and a raw `&` written back into `href` during `restore()`
+breaks the round trip against WordPress's stored `&amp;` — so `swap()` captures the
+`preg_replace_callback()` result, falls back to the original `$html` (with an
+`error_log()` line) when it is `null`, and encodes each replacement with
+`htmlspecialchars()` before writing it back. The lookup key is also `trim()`med
+before decoding so it matches `LinkExtractor::hrefFrom()` exactly. Three extra
+tests cover this: `test_pcre_failure_returns_the_original_content_not_an_empty_string`,
+`test_round_trip_preserves_an_encoded_ampersand`, and
+`test_href_with_surrounding_whitespace_is_still_rewritten`.
 
 - [ ] **Step 5: コミット**
 
@@ -1741,13 +1986,82 @@ final class SettingsTest extends WP_UnitTestCase {
 
 		$this->assertNotSame( $before, Settings::salt() );
 	}
+
+	/**
+	 * @dataProvider hostInputs
+	 */
+	public function test_hosts_are_normalised_to_bare_hostnames( string $input, string $expected ): void {
+		Settings::update( array( 'hosts' => array( $input ) ) );
+
+		$this->assertSame( array( $expected ), Settings::hosts() );
+	}
+
+	public static function hostInputs(): array {
+		return array(
+			'bare host'        => array( 'hb.afl.rakuten.co.jp', 'hb.afl.rakuten.co.jp' ),
+			'https url'        => array( 'https://hb.afl.rakuten.co.jp/', 'hb.afl.rakuten.co.jp' ),
+			'http url'         => array( 'http://hb.afl.rakuten.co.jp', 'hb.afl.rakuten.co.jp' ),
+			'url with path'    => array( 'https://hb.afl.rakuten.co.jp/hgc/abc/', 'hb.afl.rakuten.co.jp' ),
+			'scheme relative'  => array( '//hb.afl.rakuten.co.jp/x', 'hb.afl.rakuten.co.jp' ),
+			'trailing slash'   => array( 'hb.afl.rakuten.co.jp/', 'hb.afl.rakuten.co.jp' ),
+			'with port'        => array( 'hb.afl.rakuten.co.jp:443', 'hb.afl.rakuten.co.jp' ),
+			'uppercase'        => array( 'HB.AFL.Rakuten.CO.JP', 'hb.afl.rakuten.co.jp' ),
+			'padded'           => array( '  hb.afl.rakuten.co.jp  ', 'hb.afl.rakuten.co.jp' ),
+		);
+	}
+
+	public function test_a_host_entered_as_a_url_still_matches_the_extractor(): void {
+		Settings::update( array( 'hosts' => array( 'https://hb.afl.rakuten.co.jp/' ) ) );
+
+		$extractor = new \RLT\Support\LinkExtractor( Settings::hosts(), Settings::shortBase() );
+		$links     = $extractor->extract( '<a href="https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x">ホテル</a>' );
+
+		// 設定とエクストラクタの突き合わせが崩れていると、ここで 0 件になる。
+		$this->assertCount( 1, $links );
+	}
+
+	/**
+	 * @dataProvider reservedPrefixes
+	 */
+	public function test_reserved_prefixes_fall_back_to_the_default( string $prefix ): void {
+		Settings::update( array( 'prefix' => $prefix ) );
+
+		$this->assertSame( 'go', Settings::prefix() );
+	}
+
+	public static function reservedPrefixes(): array {
+		return array(
+			'wp-admin' => array( 'wp-admin' ),
+			'wp-json'  => array( 'wp-json' ),
+			'feed'     => array( 'feed' ),
+			'category' => array( 'category' ),
+			'uppercase reserved' => array( 'Feed' ),
+		);
+	}
+
+	public function test_an_ordinary_prefix_is_still_accepted(): void {
+		Settings::update( array( 'prefix' => 'out' ) );
+
+		$this->assertSame( 'out', Settings::prefix() );
+	}
+
+	public function test_salt_survives_a_concurrent_creation(): void {
+		delete_option( Settings::SALT_OPTION );
+
+		// 先に別リクエストがソルトを作った状況を再現する。
+		$winner = str_repeat( 'a', 64 );
+		add_option( Settings::SALT_OPTION, $winner, '', false );
+
+		// 後発のリクエストは自分で生成した値ではなく、既存の値を使わなければならない。
+		$this->assertSame( $winner, Settings::salt() );
+	}
 }
 ```
 
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsTest
 ```
 
 Expected: FAIL — `Class "RLT\Settings" not found`
@@ -1775,6 +2089,39 @@ final class Settings {
 
 	public const UNKNOWN_CODE_HOME = 'home';
 	public const UNKNOWN_CODE_404  = '404';
+
+	/**
+	 * Rewrite prefixes that must never be accepted, because they would shadow
+	 * a core WordPress route once registered as `^{prefix}/([a-z0-9]{4,16})/?$`
+	 * with `top` priority. This does not attempt to detect a collision with an
+	 * arbitrary existing page slug (e.g. a page literally titled "about-us")
+	 * — that is out of scope; it only guards against WordPress's own routes.
+	 */
+	private const RESERVED_PREFIXES = array(
+		'wp-admin',
+		'wp-content',
+		'wp-includes',
+		'wp-json',
+		'wp-login',
+		'feed',
+		'rss',
+		'rss2',
+		'atom',
+		'rdf',
+		'comments',
+		'embed',
+		'trackback',
+		'page',
+		'author',
+		'category',
+		'tag',
+		'date',
+		'search',
+		'attachment',
+		'robots',
+		'sitemap',
+		'favicon',
+	);
 
 	/**
 	 * @return array<string, mixed>
@@ -1858,7 +2205,20 @@ final class Settings {
 
 		if ( ! is_string( $salt ) || 64 !== strlen( $salt ) ) {
 			$salt = VisitorHash::newSalt();
-			update_option( self::SALT_OPTION, $salt, false );
+
+			// add_option() is atomic against the options table's unique key on
+			// option_name, unlike get-then-update_option(). Two simultaneous
+			// first requests can otherwise both see no salt, generate different
+			// ones, and both write; the loser's already-hashed visitor record
+			// becomes permanently unreproducible once its salt is discarded.
+			// If add_option() fails, another request won the race, so re-read
+			// and use the value that actually made it into the database.
+			if ( ! add_option( self::SALT_OPTION, $salt, '', false ) ) {
+				$existing = get_option( self::SALT_OPTION, '' );
+				if ( is_string( $existing ) && 64 === strlen( $existing ) ) {
+					$salt = $existing;
+				}
+			}
 		}
 
 		return $salt;
@@ -1880,13 +2240,17 @@ final class Settings {
 		$defaults = self::defaults();
 
 		$prefix = sanitize_title( (string) ( $values['prefix'] ?? '' ) );
-		if ( '' === $prefix ) {
+		// sanitize_title() strips slashes and regex metacharacters but happily
+		// returns things like "feed" or "wp-admin". The prefix is registered as
+		// a `top`-priority rewrite rule, so a reserved value would shadow a
+		// core WordPress route; fall back to the default instead.
+		if ( '' === $prefix || in_array( $prefix, self::RESERVED_PREFIXES, true ) ) {
 			$prefix = $defaults['prefix'];
 		}
 
 		$hosts = array();
 		foreach ( (array) ( $values['hosts'] ?? array() ) as $host ) {
-			$host = strtolower( trim( (string) $host ) );
+			$host = self::normaliseHost( (string) $host );
 			if ( '' !== $host && ! in_array( $host, $hosts, true ) ) {
 				$hosts[] = $host;
 			}
@@ -1910,16 +2274,57 @@ final class Settings {
 			'view_dedup_seconds'  => max( 0, (int) ( $values['view_dedup_seconds'] ?? $defaults['view_dedup_seconds'] ) ),
 		);
 	}
+
+	/**
+	 * Reduce a user-entered host to a bare hostname.
+	 *
+	 * LinkExtractor::isTrackable() compares stored hosts against
+	 * parse_url($url, PHP_URL_HOST), which always yields a bare hostname with
+	 * no scheme, trailing slash, or port. Storing anything else (a pasted full
+	 * URL, a scheme-relative "//host/path", a trailing slash, a port) would
+	 * make that comparison never match, so the host would silently stop being
+	 * tracked. Prepending a scheme when one is missing lets parse_url() do the
+	 * real work; if parsing still yields nothing, fall back to the trimmed,
+	 * lowercased input so an unparseable-but-plausible entry is not lost.
+	 */
+	private static function normaliseHost( string $host ): string {
+		$host = strtolower( trim( $host ) );
+
+		if ( '' === $host ) {
+			return '';
+		}
+
+		$candidate = $host;
+		if ( ! preg_match( '#^[a-z][a-z0-9+.-]*://#', $candidate ) ) {
+			// parse_url() cannot find a host in a schemeless string; a
+			// scheme-relative "//host/path" needs only "https:" prepended,
+			// anything else needs a full "https://" prefix.
+			$candidate = str_starts_with( $candidate, '//' ) ? 'https:' . $candidate : 'https://' . $candidate;
+		}
+
+		$parsed = parse_url( $candidate, PHP_URL_HOST );
+		$host   = is_string( $parsed ) && '' !== $parsed ? $parsed : $host;
+
+		// A hostname may only contain letters, digits, dots and hyphens.
+		// Anything else means the entry was not really a hostname at all
+		// (e.g. stray text or an unparseable URL); discard it rather than
+		// store a value that can never match.
+		if ( '' === $host || ! preg_match( '/^[a-z0-9.-]+$/', $host ) ) {
+			return '';
+		}
+
+		return $host;
+	}
 }
 ```
 
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsTest
 ```
 
-Expected: PASS — `OK (11 tests, ...)`
+Expected: PASS — `OK (28 tests, ...)`
 
 - [ ] **Step 5: コミット**
 
@@ -1950,6 +2355,7 @@ git commit -m "feat: 設定の既定値・サニタイズ・訪問者ソルト�
   - `RLT\Installer::viewsTable(): string`
   - `RLT\Installer::activate(): void`
   - `RLT\Installer::maybeUpgrade(): void`
+  - `RLT\Installer::tablesExist(): bool`
   - `RLT\Installer::createTables(): void`
   - `RLT\Installer::dropTables(): void`
   - `RLT\Installer::addCapabilities(): void`
@@ -1968,6 +2374,18 @@ use RLT\Installer;
 use WP_UnitTestCase;
 
 final class InstallerTest extends WP_UnitTestCase {
+
+	/**
+	 * Set by any test that calls Installer::createTables() / maybeUpgrade().
+	 *
+	 * dbDelta() issues real `ALTER TABLE` statements even when the schema
+	 * already matches (WordPress's temporary-table query filter only rewrites
+	 * `CREATE TABLE` / `DROP TABLE`, never `ALTER TABLE`), so every such call
+	 * causes a real, uncontrolled implicit commit partway through the test --
+	 * not just in the two tests that deliberately drop a table. See
+	 * tear_down() for how this is handled.
+	 */
+	private bool $realSchemaDdlRan = false;
 
 	public function test_tables_exist_after_activation(): void {
 		global $wpdb;
@@ -2092,6 +2510,7 @@ final class InstallerTest extends WP_UnitTestCase {
 		update_option( Installer::VERSION_OPTION, '0.0.1' );
 
 		Installer::maybeUpgrade();
+		$this->realSchemaDdlRan = true;
 
 		$this->assertSame( Installer::DB_VERSION, get_option( Installer::VERSION_OPTION ) );
 	}
@@ -2102,6 +2521,119 @@ final class InstallerTest extends WP_UnitTestCase {
 		$role = get_role( 'administrator' );
 		$this->assertNotNull( $role );
 		$this->assertTrue( $role->has_cap( Installer::CAPABILITY ) );
+	}
+
+	public function test_tables_exist_reports_true_when_all_three_are_present(): void {
+		$this->assertTrue( Installer::tablesExist() );
+	}
+
+	public function test_maybe_upgrade_recreates_a_dropped_table(): void {
+		global $wpdb;
+
+		$this->allowRealDdl();
+
+		// バージョンは一致したまま、テーブルだけが失われた状態。
+		// バックアップからwp_optionsごと復元したサイトで実際に起きる。
+		update_option( Installer::VERSION_OPTION, Installer::DB_VERSION );
+		delete_transient( 'rlt_schema_checked' );
+		$wpdb->query( 'DROP TABLE IF EXISTS ' . Installer::viewsTable() );
+
+		$this->assertFalse( Installer::tablesExist() );
+
+		Installer::maybeUpgrade();
+
+		$this->assertTrue( Installer::tablesExist() );
+	}
+
+	public function test_maybe_upgrade_skips_the_check_while_the_transient_is_set(): void {
+		global $wpdb;
+
+		$this->allowRealDdl();
+
+		update_option( Installer::VERSION_OPTION, Installer::DB_VERSION );
+		set_transient( 'rlt_schema_checked', 1, 12 * HOUR_IN_SECONDS );
+		$wpdb->query( 'DROP TABLE IF EXISTS ' . Installer::viewsTable() );
+
+		Installer::maybeUpgrade();
+
+		// トランジェントが立っている間は問い合わせ自体を省くため、復旧しないのが正しい。
+		$this->assertFalse( Installer::tablesExist() );
+
+		// 後続のテストのために元に戻す。
+		delete_transient( 'rlt_schema_checked' );
+		Installer::createTables();
+	}
+
+	public function test_maybe_upgrade_sets_the_transient_after_a_version_mismatch(): void {
+		update_option( Installer::VERSION_OPTION, '0.0.1' );
+		delete_transient( 'rlt_schema_checked' );
+
+		Installer::maybeUpgrade();
+		$this->realSchemaDdlRan = true;
+
+		// createTables() succeeded and tablesExist() verified it, so the version-
+		// mismatch branch should now cache that result exactly like the matching-
+		// version branch does, instead of trusting createTables() unconditionally.
+		$this->assertNotFalse( get_transient( 'rlt_schema_checked' ) );
+	}
+
+	/**
+	 * Turns off WP_UnitTestCase's rewrite of `CREATE TABLE` / `DROP TABLE` into
+	 * their `TEMPORARY` equivalents (see start_transaction() in WP core's own
+	 * test suite), for the current test only.
+	 *
+	 * Only the two tests that exercise maybeUpgrade()'s self-healing path need
+	 * this: they must drop and recreate a REAL table, not a temporary one. WP
+	 * core adds these filters fresh in parent::set_up(), bound to that test
+	 * method's own WP_UnitTestCase instance, so removing them here does not
+	 * leak into any other test in this class -- the next test method runs on a
+	 * new instance with the rewrite back in place.
+	 */
+	private function allowRealDdl(): void {
+		remove_filter( 'query', array( $this, '_create_temporary_tables' ) );
+		remove_filter( 'query', array( $this, '_drop_temporary_tables' ) );
+		$this->realSchemaDdlRan = true;
+	}
+
+	public function tear_down(): void {
+		// DROP TABLE / CREATE TABLE / ALTER TABLE are DDL, which causes an implicit
+		// commit and therefore escapes the per-test transaction rollback
+		// WP_UnitTestCase relies on. Restore the schema whenever a test in this
+		// class left a table missing, so later tests never see a state left behind
+		// by the DDL tests above.
+		//
+		// This check is deliberately conditional: calling createTables() itself runs
+		// dbDelta, which is DDL and would implicit-commit the current test's own
+		// pending changes even when nothing needs to change — silently breaking the
+		// rollback for every other test in the class, not just the DDL ones.
+		if ( ! Installer::tablesExist() ) {
+			Installer::createTables();
+			$this->realSchemaDdlRan = true;
+		}
+
+		if ( $this->realSchemaDdlRan ) {
+			global $wpdb;
+
+			// Any call to Installer::createTables() / maybeUpgrade() in this test
+			// issued a real ALTER TABLE, which implicit-commits whatever was pending
+			// at that point and -- because the connection is still in
+			// `autocommit = 0` mode -- silently opens a *new* implicit transaction
+			// for every statement that follows, including this class's own cleanup
+			// writes below. WP_UnitTestCase's tear_down() only ever issues a single
+			// ROLLBACK, which would discard that new transaction (and our cleanup
+			// with it), leaving whatever update_option( VERSION_OPTION, ... ) the
+			// test made *before* the DDL permanently committed in the database.
+			//
+			// So the option/transient state has to be restored and the restoration
+			// itself explicitly committed here, rather than left to rollback -- the
+			// whole point being that rollback cannot be trusted once real DDL has
+			// run during this test.
+			delete_option( Installer::VERSION_OPTION );
+			delete_transient( 'rlt_schema_checked' );
+			$wpdb->query( 'COMMIT' );
+		}
+
+		parent::tear_down();
 	}
 }
 ```
@@ -2119,7 +2651,7 @@ final class InstallerTest extends WP_UnitTestCase {
 - [ ] **Step 3: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter InstallerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter InstallerTest
 ```
 
 Expected: FAIL — `Class "RLT\Installer" not found`
@@ -2148,6 +2680,11 @@ final class Installer {
 	 * Roles that can read the plugin's statistics.
 	 */
 	private const ROLES = array( 'administrator', 'editor' );
+
+	/**
+	 * How long a successful schema check is trusted before it is repeated.
+	 */
+	private const SCHEMA_CHECK_TRANSIENT = 'rlt_schema_checked';
 
 	public static function linksTable(): string {
 		global $wpdb;
@@ -2184,12 +2721,70 @@ final class Installer {
 	 */
 	public static function maybeUpgrade(): void {
 		if ( get_option( self::VERSION_OPTION ) === self::DB_VERSION ) {
+			// The version matches, but that alone doesn't prove the tables are
+			// still there: a site restored from a backup can bring back
+			// wp_options (and so this matching version) without the plugin's
+			// custom tables, or an admin can drop a table by hand. Verify the
+			// schema before trusting the version number.
+			//
+			// A `SHOW TABLES` round trip on every single request is wasted cost
+			// for the overwhelmingly common case where nothing is wrong, so the
+			// result of a successful check is cached in a transient and only
+			// re-checked twice a day.
+			if ( false !== get_transient( self::SCHEMA_CHECK_TRANSIENT ) ) {
+				return;
+			}
+
+			if ( self::tablesExist() ) {
+				set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
+				return;
+			}
+
+			error_log( '[rakuten-link-tracker] Installer: one or more tables were missing despite a matching DB version; recreating.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+
+			self::createAndVerifySchema();
+
 			return;
 		}
 
-		self::createTables();
+		self::createAndVerifySchema();
 		self::addCapabilities();
 		update_option( self::VERSION_OPTION, self::DB_VERSION );
+	}
+
+	/**
+	 * Creates the schema and only trusts it once tablesExist() confirms it,
+	 * caching that confirmation in the schema-check transient. Shared by both
+	 * branches of maybeUpgrade() so an upgrade that only partly succeeds is
+	 * never silently trusted for the next 12 hours -- the same guarantee the
+	 * matching-version branch already had.
+	 */
+	private static function createAndVerifySchema(): void {
+		self::createTables();
+
+		if ( self::tablesExist() ) {
+			set_transient( self::SCHEMA_CHECK_TRANSIENT, 1, 12 * HOUR_IN_SECONDS );
+			return;
+		}
+
+		error_log( '[rakuten-link-tracker] Installer: createTables() did not produce all expected tables; the schema check transient was not set.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+	}
+
+	/**
+	 * Whether all three of the plugin's tables are present in the database.
+	 */
+	public static function tablesExist(): bool {
+		global $wpdb;
+
+		foreach ( array( self::linksTable(), self::clicksTable(), self::viewsTable() ) as $table ) {
+			$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+
+			if ( $found !== $table ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	public static function createTables(): void {
@@ -2314,10 +2909,10 @@ register_deactivation_hook(
 - [ ] **Step 7: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter InstallerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter InstallerTest
 ```
 
-Expected: PASS — `OK (8 tests, ...)`
+Expected: PASS — `OK (12 tests, ...)`
 
 - [ ] **Step 8: コミット**
 
@@ -2528,7 +3123,7 @@ final class LinkRepositoryTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinkRepositoryTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinkRepositoryTest
 ```
 
 Expected: FAIL — `Class "RLT\Data\LinkRepository" not found`
@@ -2787,7 +3382,7 @@ final class LinkRepository {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinkRepositoryTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinkRepositoryTest
 ```
 
 Expected: PASS — `OK (15 tests, ...)`
@@ -2889,6 +3484,46 @@ final class RequestContextTest extends WP_UnitTestCase {
 		RequestContext::reset();
 
 		$this->assertTrue( RequestContext::isBot() );
+	}
+
+	public function test_referer_is_truncated_without_breaking_a_multibyte_character(): void {
+		// esc_url_raw は \x80-\xff の生バイトをそのまま通すため、
+		// 生の UTF-8 を含むリファラがここまで届きうる。
+		$_SERVER['HTTP_REFERER'] = 'https://example.com/' . str_repeat( 'あ', 300 );
+
+		$referer = RequestContext::referer();
+
+		$this->assertLessThanOrEqual( 255, strlen( $referer ) );
+		$this->assertSame(
+			$referer,
+			mb_convert_encoding( $referer, 'UTF-8', 'UTF-8' ),
+			'Truncated referer is not valid UTF-8.'
+		);
+	}
+
+	public function test_a_truncated_referer_is_still_stored(): void {
+		$_SERVER['HTTP_REFERER'] = 'https://example.com/' . str_repeat( 'あ', 300 );
+		RequestContext::reset();
+
+		// 壊れたUTF-8だと INSERT ごと失敗し、クリック自体が記録されない。
+		$this->assertTrue( ( new \RLT\Data\EventRepository() )->recordClick( 1, 1 ) );
+	}
+
+	public function test_a_filter_returning_nothing_falls_back_to_remote_addr(): void {
+		add_filter( 'rlt_client_ip', static fn () => null );
+
+		$this->assertSame( '203.0.113.5', RequestContext::ip() );
+	}
+
+	public function test_a_filter_returning_a_non_string_falls_back_to_remote_addr(): void {
+		add_filter( 'rlt_client_ip', static fn () => array( 'nope' ) );
+
+		$this->assertSame( '203.0.113.5', RequestContext::ip() );
+	}
+
+	public function tear_down(): void {
+		RequestContext::reset();
+		parent::tear_down();
 	}
 }
 ```
@@ -3004,13 +3639,18 @@ final class EventRepositoryRecordTest extends WP_UnitTestCase {
 		$this->assertTrue( $this->events->hasRecentView( 42, RequestContext::visitorHash(), 1800 ) );
 		$this->assertFalse( $this->events->hasRecentView( 43, RequestContext::visitorHash(), 1800 ) );
 	}
+
+	public function tear_down(): void {
+		RequestContext::reset();
+		parent::tear_down();
+	}
 }
 ```
 
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter 'RequestContextTest|EventRepositoryRecordTest'"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter 'RequestContextTest|EventRepositoryRecordTest'
 ```
 
 Expected: FAIL — `Class "RLT\Support\RequestContext" not found`
@@ -3061,7 +3701,14 @@ final class RequestContext {
 	public static function ip(): string {
 		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : '';
 
-		return (string) apply_filters( 'rlt_client_ip', $ip );
+		$filtered = apply_filters( 'rlt_client_ip', $ip );
+
+		// A misbehaving third-party filter (proxy detection gone wrong, e.g.
+		// returning null/false/an array) must not silently degrade
+		// deduplication: casting a non-string to '' would make the IP
+		// contribute nothing to the visitor hash, merging every visitor that
+		// shares a user-agent. Fall back to the real, unfiltered value instead.
+		return is_string( $filtered ) && '' !== $filtered ? $filtered : $ip;
 	}
 
 	public static function userAgent(): string {
@@ -3075,7 +3722,33 @@ final class RequestContext {
 			? esc_url_raw( (string) wp_unslash( $_SERVER['HTTP_REFERER'] ) )
 			: '';
 
-		return substr( $referer, 0, self::MAX_REFERER_LENGTH );
+		return self::truncateBytesSafely( $referer );
+	}
+
+	/**
+	 * Keep the referer inside the utf8mb4 VARCHAR(255) column without
+	 * splitting a multibyte character in half.
+	 *
+	 * esc_url_raw() passes raw \x80-\xff bytes through unescaped, so a
+	 * Referer header carrying raw UTF-8 can reach here as multibyte text.
+	 * substr() counts bytes, so a naive cut at 255 bytes can land mid
+	 * character and leave an invalid UTF-8 tail. Under MySQL strict mode an
+	 * invalid sequence fails the whole INSERT, which would silently drop the
+	 * click/view event rather than merely store a mangled referer. Same
+	 * technique as LinkExtractor::truncate(), kept in sync deliberately.
+	 */
+	private static function truncateBytesSafely( string $text ): string {
+		if ( strlen( $text ) <= self::MAX_REFERER_LENGTH ) {
+			return $text;
+		}
+
+		$cut = substr( $text, 0, self::MAX_REFERER_LENGTH );
+
+		return (string) preg_replace(
+			'/(?:[\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$/',
+			'',
+			$cut
+		);
 	}
 
 	public static function visitorHash(): string {
@@ -3206,10 +3879,10 @@ final class EventRepository {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter 'RequestContextTest|EventRepositoryRecordTest'"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter 'RequestContextTest|EventRepositoryRecordTest'
 ```
 
-Expected: PASS — `OK (17 tests, ...)`
+Expected: PASS — `OK (21 tests, ...)`
 
 - [ ] **Step 6: コミット**
 
@@ -3258,11 +3931,20 @@ final class PostSyncTest extends WP_UnitTestCase {
 	private PostSync $sync;
 	private LinkRepository $links;
 
+	/**
+	 * The plugin itself already constructs a PostSync and hooks it to
+	 * save_post (via Plugin::boot() on muplugins_loaded in
+	 * bootstrap-integration.php) for the whole test run. Registering a
+	 * second, locally-constructed instance here would make every save run
+	 * syncPost() twice through two separate objects, so this instance is
+	 * built (to call syncPost()/restorePost()/syncedPostTypes() directly)
+	 * but never registered; the save_post hook path is left to the plugin's
+	 * own already-registered instance.
+	 */
 	protected function setUp(): void {
 		parent::setUp();
 		$this->links = new LinkRepository();
 		$this->sync  = new PostSync( $this->links );
-		$this->sync->register();
 	}
 
 	private function createPostWithLink( string $content ): int {
@@ -3414,13 +4096,87 @@ final class PostSyncTest extends WP_UnitTestCase {
 
 		$this->assertNotSame( $codeA, $codeB );
 	}
+
+	public function test_resaving_an_unchanged_post_does_not_archive_its_links(): void {
+		$postId = $this->createPostWithLink( '<a href="' . self::AFFILIATE . '">ホテル</a>' );
+
+		$this->assertCount( 1, $this->links->findByPost( $postId ) );
+
+		// 編集者が「更新」をもう一度押しただけ。ここでリンクがアーカイブされると
+		// PVビーコンが止まり、以降その記事の計測が無言で死ぬ。
+		wp_update_post( array( 'ID' => $postId ) );
+
+		$this->assertCount( 1, $this->links->findByPost( $postId ), 'Re-saving archived the post links.' );
+	}
+
+	public function test_repeated_saves_keep_the_same_code_and_content(): void {
+		$postId = $this->createPostWithLink( '<a href="' . self::AFFILIATE . '">ホテル</a>' );
+
+		$code    = $this->links->findByPost( $postId )[0]['code'];
+		$content = get_post_field( 'post_content', $postId );
+
+		for ( $i = 0; $i < 3; $i++ ) {
+			wp_update_post( array( 'ID' => $postId ) );
+		}
+
+		$links = $this->links->findByPost( $postId );
+
+		$this->assertCount( 1, $links );
+		$this->assertSame( $code, $links[0]['code'] );
+		$this->assertSame( $content, get_post_field( 'post_content', $postId ) );
+	}
+
+	public function test_a_short_url_outside_an_anchor_does_not_keep_a_removed_link_alive(): void {
+		$postId = $this->createPostWithLink( '<a href="' . self::AFFILIATE . '">ホテル</a>' );
+		$linkId = $this->links->findByPost( $postId )[0]['id'];
+		$short  = \RLT\Settings::shortUrl( $this->links->findById( $linkId )['code'] );
+
+		// アンカーは消したが、短縮URLの文字列だけが本文に残っている状況。
+		wp_update_post(
+			array(
+				'ID'           => $postId,
+				'post_content' => '<p>以前は ' . esc_html( $short ) . ' を紹介していました。</p>',
+			)
+		);
+
+		$this->assertSame( array(), $this->links->findByPost( $postId ), 'A bare short URL kept a removed link active.' );
+		$this->assertSame( 0, $this->links->findById( $linkId )['status'] );
+	}
+
+	public function test_writing_content_bumps_the_modified_time(): void {
+		$postId = self::factory()->post->create(
+			array(
+				'post_content'      => '<p>まだリンクなし</p>',
+				'post_status'       => 'publish',
+				'post_modified'     => '2020-01-01 00:00:00',
+				'post_modified_gmt' => '2020-01-01 00:00:00',
+			)
+		);
+
+		global $wpdb;
+		$wpdb->update(
+			$wpdb->posts,
+			array(
+				'post_content'      => '<a href="' . self::AFFILIATE . '">ホテル</a>',
+				'post_modified'     => '2020-01-01 00:00:00',
+				'post_modified_gmt' => '2020-01-01 00:00:00',
+			),
+			array( 'ID' => $postId )
+		);
+		clean_post_cache( $postId );
+
+		$this->assertTrue( $this->sync->syncPost( $postId ) );
+
+		// 更新時刻が古いままだと、キャッシュが書き換え前の本文を配り続ける。
+		$this->assertNotSame( '2020-01-01 00:00:00', get_post_field( 'post_modified_gmt', $postId ) );
+	}
 }
 ```
 
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostSyncTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostSyncTest
 ```
 
 Expected: FAIL — `Class "RLT\Frontend\PostSync" not found`
@@ -3504,6 +4260,7 @@ final class PostSync {
 			$content   = (string) $post->post_content;
 			$extractor = new LinkExtractor( Settings::hosts(), Settings::shortBase() );
 			$found     = $extractor->extract( $content );
+			$hrefs     = $extractor->extractHrefs( $content );
 
 			$map     = array();
 			$keepIds = array();
@@ -3517,6 +4274,31 @@ final class PostSync {
 
 				$keepIds[]           = $link['id'];
 				$map[ $item['url'] ] = Settings::shortUrl( $link['code'] );
+			}
+
+			// An already-active link whose short URL is still sitting in the
+			// content must also be kept, even though LinkExtractor::extract()
+			// (which only looks for un-shortened affiliate hrefs) will not
+			// report it. This is the ordinary case on every re-save of a post
+			// that was already converted: the content already holds short
+			// URLs, extract() deliberately ignores them, so $found -- and
+			// therefore $keepIds -- would otherwise be built as if every link
+			// on the post had been removed, and archiveOthers() below would
+			// archive all of them on a plain "Update" click.
+			//
+			// The check is scoped to actual <a href> values (via
+			// extractHrefs()), not a raw substring search over the whole
+			// document: a short URL sitting in plain text, an HTML comment,
+			// an <img src>, or a code sample is not a live link and must not
+			// keep an actually-removed link active.
+			foreach ( $this->links->findByPost( $postId, true ) as $active ) {
+				if ( in_array( $active['id'], $keepIds, true ) ) {
+					continue;
+				}
+
+				if ( in_array( Settings::shortUrl( $active['code'] ), $hrefs, true ) ) {
+					$keepIds[] = $active['id'];
+				}
 			}
 
 			// Links no longer present in the content are archived, never deleted:
@@ -3556,9 +4338,18 @@ final class PostSync {
 			return false;
 		}
 
+		// A key is built for every prefix the site has ever used (current plus
+		// past, see Settings::allPrefixes()), not just the current one:
+		// content published while an older prefix was active still holds a
+		// short URL built with that prefix, and it must still be restorable
+		// after the prefix changes. Mirrors LinkRepository::restoreMap().
+		$prefixes = Settings::allPrefixes();
+
 		$map = array();
 		foreach ( $this->links->findByPost( $postId, false ) as $link ) {
-			$map[ Settings::shortUrl( $link['code'] ) ] = $link['target_url'];
+			foreach ( $prefixes as $prefix ) {
+				$map[ Settings::shortUrlFor( $prefix, $link['code'] ) ] = $link['target_url'];
+			}
 		}
 
 		if ( array() === $map ) {
@@ -3603,11 +4394,20 @@ final class PostSync {
 	private function writeContent( int $postId, string $content ): void {
 		global $wpdb;
 
+		// post_modified / post_modified_gmt must be bumped here even though
+		// wp_update_post() is deliberately avoided: a page cache or CDN keyed
+		// on the modified time would otherwise keep serving the pre-rewrite
+		// content, so the links visitors actually click stay the untracked
+		// originals until something else touches the post.
 		$wpdb->update(
 			$wpdb->posts,
-			array( 'post_content' => $content ),
+			array(
+				'post_content'      => $content,
+				'post_modified'     => current_time( 'mysql' ),
+				'post_modified_gmt' => current_time( 'mysql', true ),
+			),
 			array( 'ID' => $postId ),
-			array( '%s' ),
+			array( '%s', '%s', '%s' ),
 			array( '%d' )
 		);
 
@@ -3631,10 +4431,10 @@ final class PostSync {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostSyncTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostSyncTest
 ```
 
-Expected: PASS — `OK (14 tests, ...)`
+Expected: PASS — `OK (18 tests, ...)`
 
 - [ ] **Step 6: コミット**
 
@@ -3827,11 +4627,15 @@ final class RedirectHandlerTest extends WP_UnitTestCase {
 	}
 
 	public function test_handle_does_nothing_without_a_code(): void {
+		global $wpdb;
+
 		set_query_var( RedirectHandler::QUERY_VAR, '' );
 
+		// リダイレクトしていれば wp_redirect フィルタが RedirectCaught を投げ、
+		// このテストは例外で落ちる。落ちないこと自体が「素通りした」証拠。
 		$this->handler->handle();
 
-		$this->assertTrue( true, 'handle() returned without redirecting.' );
+		$this->assertSame( '0', $wpdb->get_var( 'SELECT COUNT(*) FROM ' . Installer::clicksTable() ) );
 	}
 
 	public function test_head_requests_are_not_recorded(): void {
@@ -3871,7 +4675,7 @@ final class RedirectHandlerTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter RedirectHandlerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter RedirectHandlerTest
 ```
 
 Expected: FAIL — `Class "RLT\Frontend\RedirectHandler" not found`
@@ -3994,6 +4798,27 @@ final class RedirectHandler {
 			}
 		}
 
+		// Belt-and-braces scheme check, even though LinkExtractor already
+		// rejects non-http(s) URLs before a link is ever created: rows
+		// inserted before that fix still exist, and target_url is editable
+		// through the links admin screen (a later task), so a dangerous
+		// value can still reach this point. wp_redirect() only sanitises
+		// characters -- it does not restrict scheme or host the way
+		// wp_safe_redirect() would -- so an unchecked value here would let a
+		// public /{prefix}/{code} URL turn into an open redirect to
+		// javascript:/data:/etc. This must never throw: a malformed
+		// target_url falls through to the ordinary "unknown code" handling
+		// instead of blocking the redirect guarantee for every other link.
+		$scheme = strtolower( (string) parse_url( (string) $link['target_url'], PHP_URL_SCHEME ) );
+
+		if ( ! in_array( $scheme, array( 'http', 'https' ), true ) ) {
+			error_log( '[rakuten-link-tracker] refused to redirect code "' . $code . '": target_url has a disallowed scheme.' );
+
+			$this->handleUnknownCode();
+
+			return;
+		}
+
 		wp_redirect( $link['target_url'], 302 );
 		exit;
 	}
@@ -4050,7 +4875,7 @@ final class RedirectHandler {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter RedirectHandlerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter RedirectHandlerTest
 ```
 
 Expected: PASS — `OK (14 tests, ...)`
@@ -4058,10 +4883,10 @@ Expected: PASS — `OK (14 tests, ...)`
 - [ ] **Step 6: 手動で動作確認する**
 
 ```powershell
-npx wp-env run cli "wp plugin activate rakuten-link-tracker"
-npx wp-env run cli "wp rewrite flush"
-npx wp-env run cli "wp post create --post_title='テスト' --post_status=publish --post_content='<a href=\"https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x\">ホテル</a>' --porcelain"
-npx wp-env run cli "wp post get <上で出たID> --field=post_content"
+npx @wordpress/env run cli -- wp plugin activate rakuten-link-tracker
+npx @wordpress/env run cli -- wp rewrite flush
+npx @wordpress/env run cli -- wp post create --post_title='テスト' --post_status=publish --post_content='<a href=\https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x\">ホテル</a>' --porcelain"
+npx @wordpress/env run cli -- wp post get <上で出たID> --field=post_content
 ```
 
 Expected: 本文の `href` が `http://localhost:8888/go/xxxxxx` に置き換わっている
@@ -4236,7 +5061,7 @@ final class BeaconControllerTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BeaconControllerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BeaconControllerTest
 ```
 
 Expected: FAIL — `Class "RLT\Frontend\BeaconController" not found`
@@ -4430,6 +5255,13 @@ final class BeaconController {
 		return;
 	}
 
+	// A browser old enough to lack sendBeacon is likely to also lack fetch.
+	// Browsers too old to support fetch cannot send pageviews anyway, so give up
+	// silently rather than throwing.
+	if ( typeof fetch !== 'function' ) {
+		return;
+	}
+
 	fetch( config.endpoint, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -4457,10 +5289,10 @@ final class BeaconController {
 - [ ] **Step 6: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BeaconControllerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BeaconControllerTest
 ```
 
-Expected: PASS — `OK (11 tests, ...)`
+Expected: PASS — `OK (10 tests, ...)`
 
 - [ ] **Step 7: コミット**
 
@@ -4484,7 +5316,8 @@ git commit -m "feat: JSビーコンによる記事PV計測を追加"
 - Produces:
   - `RLT\Support\DateRange::__construct(string $from, string $to)` — 両方 `Y-m-d`、サイトのタイムゾーン基準
   - `RLT\Support\DateRange::lastDays(int $days): self`
-  - `RLT\Support\DateRange::fromRequest(?string $from, ?string $to, int $defaultDays = 28): self`
+  - `RLT\Support\DateRange::fromRequest(?string $from, ?string $to, int $defaultDays = 28): self` — 期間が `MAX_DAYS`（731日）を超える場合は終端を保ったまま始端を引き寄せてクランプする
+  - `RLT\Support\DateRange::MAX_DAYS` — `fromRequest()` が許容する最大日数（731日）
   - `fromDate(): string` / `toDate(): string`
   - `startUtc(): string` / `endUtc(): string` — `Y-m-d H:i:s`
   - `days(): array` — `['2026-09-01', ...]` の全日リスト
@@ -4570,13 +5403,27 @@ final class DateRangeTest extends WP_UnitTestCase {
 		$this->assertSame( '2026-09-01', $range->fromDate() );
 		$this->assertSame( '2026-09-03', $range->toDate() );
 	}
+
+	public function test_from_request_clamps_an_absurd_span(): void {
+		$range = DateRange::fromRequest( '1970-01-01', '2026-09-04', 28 );
+
+		$this->assertSame( DateRange::MAX_DAYS, $range->dayCount() );
+		// 終端は要求どおりで、始端だけを引き寄せる。
+		$this->assertSame( '2026-09-04', $range->toDate() );
+	}
+
+	public function test_from_request_leaves_a_reasonable_span_alone(): void {
+		$range = DateRange::fromRequest( '2026-01-01', '2026-03-31', 28 );
+
+		$this->assertSame( 90, $range->dayCount() );
+	}
 }
 ```
 
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DateRangeTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DateRangeTest
 ```
 
 Expected: FAIL — `Class "RLT\Support\DateRange" not found`
@@ -4602,6 +5449,16 @@ namespace RLT\Support;
 final class DateRange {
 
 	private const FORMAT = 'Y-m-d';
+
+	/**
+	 * Two years plus a leap day. The read-only API key this endpoint accepts is
+	 * explicitly meant to be handed to a lower-trust holder (a BI tool, an AI
+	 * tool), and clicksForExport()/viewsForExport() have no LIMIT, so an
+	 * unbounded "from" (e.g. 1970-01-01) is a cheap way for that bearer to
+	 * force an unbounded query and response body. Capping the span here closes
+	 * that off without rejecting the request outright.
+	 */
+	public const MAX_DAYS = 731;
 
 	private \DateTimeImmutable $from;
 	private \DateTimeImmutable $to;
@@ -4636,7 +5493,16 @@ final class DateRange {
 			return self::lastDays( $defaultDays );
 		}
 
-		return new self( (string) $from, (string) $to );
+		$range = new self( (string) $from, (string) $to );
+
+		if ( $range->dayCount() > self::MAX_DAYS ) {
+			// Clamp rather than reject: keep the end the caller asked for and pull
+			// the start forward so the span is at most MAX_DAYS days.
+			$clampedStart = $range->to->modify( '-' . ( self::MAX_DAYS - 1 ) . ' days' );
+			$range        = new self( $clampedStart->format( self::FORMAT ), $range->toDate() );
+		}
+
+		return $range;
 	}
 
 	public function fromDate(): string {
@@ -4712,10 +5578,10 @@ final class DateRange {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DateRangeTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DateRangeTest
 ```
 
-Expected: PASS — `OK (9 tests, ...)`
+Expected: PASS — `OK (11 tests, ...)`
 
 - [ ] **Step 5: コミット**
 
@@ -4738,7 +5604,7 @@ git commit -m "feat: 期間指定とタイムゾーン変換をDateRangeに集�
   - `summary(DateRange $range, bool $includeBots = false): array` → `['clicks'=>int,'unique_clicks'=>int,'views'=>int,'unique_views'=>int,'ctr'=>float]`
   - `daily(DateRange $range, bool $includeBots = false): array` → `[['date'=>string,'clicks'=>int,'views'=>int], ...]`（欠損日は0で埋める）
   - `byPost(DateRange $range, bool $includeBots, string $orderby, int $limit): array` → `[['post_id'=>int,'views'=>int,'clicks'=>int,'ctr'=>float], ...]`
-  - `byLink(DateRange $range, bool $includeBots, ?int $postId, string $orderby, int $limit): array` → `[['link_id'=>int,'code'=>string,'label'=>string,'post_id'=>int,'target_url'=>string,'status'=>int,'clicks'=>int,'unique_clicks'=>int,'views'=>int,'ctr'=>float,'last_click'=>?string], ...]`
+  - `byLink(DateRange $range, bool $includeBots, ?int $postId, string $orderby, int $limit): array` → `[['link_id'=>int,'code'=>string,'label'=>string,'post_id'=>int,'target_url'=>string,'status'=>int,'clicks'=>int,'unique_clicks'=>int,'post_views'=>int,'ctr'=>float,'last_click'=>?string], ...]`
   - `linkDetail(int $linkId, DateRange $range, bool $includeBots): array` → `['daily'=>[['date','clicks']], 'referers'=>[['referer','clicks']], 'devices'=>[['device'=>int,'label'=>string,'clicks'=>int]]]`
   - `clicksForExport(DateRange $range, bool $includeBots): array`
   - `viewsForExport(DateRange $range, bool $includeBots): array`
@@ -4958,7 +5824,7 @@ final class EventRepositoryStatsTest extends WP_UnitTestCase {
 		$this->assertSame( $link['code'], $rows[0]['code'] );
 		$this->assertSame( 2, $rows[0]['clicks'] );
 		$this->assertSame( 1, $rows[0]['unique_clicks'] );
-		$this->assertSame( 2, $rows[0]['views'] );
+		$this->assertSame( 2, $rows[0]['post_views'] );
 		$this->assertSame( 1.0, $rows[0]['ctr'] );
 		$this->assertNotNull( $rows[0]['last_click'] );
 	}
@@ -5046,7 +5912,7 @@ final class EventRepositoryStatsTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter EventRepositoryStatsTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter EventRepositoryStatsTest
 ```
 
 Expected: FAIL — `Call to undefined method RLT\Data\EventRepository::summary()`
@@ -5484,7 +6350,7 @@ Expected: FAIL — `Call to undefined method RLT\Data\EventRepository::summary()
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter EventRepositoryStatsTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter EventRepositoryStatsTest
 ```
 
 Expected: PASS — `OK (16 tests, ...)`
@@ -5609,13 +6475,77 @@ final class ApiKeyManagerTest extends WP_UnitTestCase {
 
 		$this->assertStringNotContainsString( '<script>', $created['label'] );
 	}
+
+	public function test_verify_does_not_resurrect_a_key_revoked_during_the_call(): void {
+		$created = ApiKeyManager::create( 'BI' );
+
+		// verify() が last_used_at を書き戻す直前に、別リクエストが失効させた状況を作る。
+		// 古い配列をそのまま書き戻すと、失効が取り消されてキーが復活してしまう。
+		add_filter(
+			'pre_update_option_' . ApiKeyManager::OPTION,
+			static function ( $value ) use ( $created ) {
+				static $done = false;
+
+				if ( ! $done ) {
+					$done = true;
+					ApiKeyManager::revoke( $created['id'] );
+				}
+
+				return $value;
+			}
+		);
+
+		ApiKeyManager::verify( $created['key'] );
+
+		$this->assertSame( array(), ApiKeyManager::all(), 'A concurrent revoke was undone.' );
+		$this->assertNull( ApiKeyManager::verify( $created['key'] ), 'A revoked key still verifies.' );
+	}
+
+	public function test_ids_are_wide_enough_to_not_collide(): void {
+		$created = ApiKeyManager::create( 'BI' );
+
+		// 32ビットでは衝突時に既存レコードを黙って上書きしてしまう。
+		$this->assertSame( 16, strlen( $created['id'] ) );
+	}
+
+	public function test_creating_many_keys_never_loses_one(): void {
+		$made = array();
+
+		for ( $i = 0; $i < 25; $i++ ) {
+			$made[] = ApiKeyManager::create( 'key-' . $i );
+		}
+
+		$this->assertCount( 25, ApiKeyManager::all() );
+
+		foreach ( $made as $key ) {
+			$this->assertNotNull( ApiKeyManager::verify( $key['key'] ), 'A created key stopped verifying.' );
+		}
+	}
+
+	public function test_an_all_digit_id_does_not_break_verify_or_revoke(): void {
+		$created = ApiKeyManager::create( 'BI' );
+
+		// 16桁の16進IDがすべて数字になることが約4300回に1回あり、
+		// PHP はその配列キーを int に暗黙変換する。
+		$keys                      = get_option( ApiKeyManager::OPTION );
+		$record                    = $keys[ $created['id'] ];
+		unset( $keys[ $created['id'] ] );
+		$record['id']              = '1234567890123456';
+		$keys['1234567890123456']  = $record;
+		update_option( ApiKeyManager::OPTION, $keys, false );
+
+		$this->assertNotNull( ApiKeyManager::verify( $created['key'] ) );
+		$this->assertCount( 1, ApiKeyManager::all() );
+		$this->assertTrue( ApiKeyManager::revoke( '1234567890123456' ) );
+		$this->assertNull( ApiKeyManager::verify( $created['key'] ) );
+	}
 }
 ```
 
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ApiKeyManagerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ApiKeyManagerTest
 ```
 
 Expected: FAIL — `Class "RLT\Data\ApiKeyManager" not found`
@@ -5650,11 +6580,27 @@ final class ApiKeyManager {
 	 */
 	public static function create( string $label ): array {
 		$key   = self::PREFIX . bin2hex( random_bytes( 24 ) );
-		$id    = bin2hex( random_bytes( 4 ) );
 		$now   = current_time( 'mysql', true );
 		$label = sanitize_text_field( $label );
 
-		$keys       = self::stored();
+		// Re-read immediately before writing rather than relying on a value
+		// captured earlier in the request: two keys created back to back (e.g.
+		// two create() calls in the same admin-post request) must both survive,
+		// not have the second overwrite the first with a stale array.
+		$keys = self::stored();
+
+		// 64 bits of id makes an accidental collision effectively impossible, but
+		// an id must never be allowed to silently overwrite an existing record:
+		// that would destroy the earlier key's hash (it stops verifying, with no
+		// error shown to whoever holds it) and misdirect revoke() at the wrong
+		// record. Regenerate on collision instead, bounded so a broken RNG can't
+		// spin forever.
+		$attempts = 0;
+		do {
+			$id = bin2hex( random_bytes( 8 ) );
+			++$attempts;
+		} while ( isset( $keys[ $id ] ) && $attempts < 5 );
+
 		$keys[ $id ] = array(
 			'id'           => $id,
 			'label'        => $label,
@@ -5705,12 +6651,24 @@ final class ApiKeyManager {
 		$keys = self::stored();
 
 		foreach ( $keys as $id => $record ) {
-			if ( ! hash_equals( (string) $record['hash'], $hash ) ) {
+			// A record's id is generated as 16 hex characters, but PHP silently
+			// coerces an array key that happens to be all digits from string to
+			// int (roughly 1 in 4,300 keys). touchLastUsed() declares string $id
+			// under strict_types, so that int must be cast back before use here.
+			$id = (string) $id;
+
+			// A record without a hash (corrupt/legacy data) can never match; skip it
+			// rather than let hash_equals() coerce a missing value into a comparison.
+			if ( ! isset( $record['hash'] ) || ! hash_equals( (string) $record['hash'], $hash ) ) {
 				continue;
 			}
 
-			$keys[ $id ]['last_used_at'] = current_time( 'mysql', true );
-			update_option( self::OPTION, $keys, false );
+			if ( ! self::touchLastUsed( $id ) ) {
+				// A concurrent revoke() removed this id between our read above and
+				// the write below; treat the key as unauthenticated rather than
+				// writing back a stale snapshot that would undo the revoke.
+				return null;
+			}
 
 			return array(
 				'id'    => (string) $record['id'],
@@ -5719,6 +6677,56 @@ final class ApiKeyManager {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Sets last_used_at for $id, re-reading the stored option as late as
+	 * possible — from inside the pre_update_option filter that update_option()
+	 * itself fires, right before the write — rather than reusing a value read
+	 * earlier in this request. A revoke() can complete (its own read, unset and
+	 * write) at any point up to that instant, including nested inside this very
+	 * update_option() call via another callback on the same filter; reusing an
+	 * earlier snapshot would silently resurrect a key an admin just revoked.
+	 *
+	 * @return bool False if $id was no longer present at write time (revoked
+	 *              concurrently), true if last_used_at was updated.
+	 */
+	private static function touchLastUsed( string $id ): bool {
+		$now      = current_time( 'mysql', true );
+		$found    = false;
+		// The value we are asking update_option() to write. pre_update_option
+		// fires for *any* update_option() call on this option, including one
+		// nested inside another callback on this same hook (e.g. a revoke()
+		// that a concurrent request runs, which — in the worst case a test can
+		// force deterministically — happens synchronously in between). Only the
+		// invocation carrying this exact, unmodified value is ours; any other
+		// invocation belongs to that nested call and must be left untouched.
+		$intended = self::stored();
+
+		$filter = static function ( $value ) use ( $id, $now, &$found, $intended ) {
+			if ( $value !== $intended ) {
+				return $value;
+			}
+
+			$fresh = self::stored();
+
+			if ( ! isset( $fresh[ $id ] ) ) {
+				// Revoked concurrently (by now-committed nested write above):
+				// write back the current, id-less reality, not the stale $value.
+				return $fresh;
+			}
+
+			$found                        = true;
+			$fresh[ $id ]['last_used_at'] = $now;
+
+			return $fresh;
+		};
+
+		add_filter( 'pre_update_option_' . self::OPTION, $filter );
+		update_option( self::OPTION, $intended, false );
+		remove_filter( 'pre_update_option_' . self::OPTION, $filter );
+
+		return $found;
 	}
 
 	public static function revoke( string $id ): bool {
@@ -5752,10 +6760,10 @@ final class ApiKeyManager {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ApiKeyManagerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ApiKeyManagerTest
 ```
 
-Expected: PASS — `OK (10 tests, ...)`
+Expected: PASS — `OK (14 tests, 52 assertions)`
 
 - [ ] **Step 5: コミット**
 
@@ -6004,6 +7012,35 @@ final class StatsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 400, rest_get_server()->dispatch( $request )->get_status() );
 	}
 
+	/**
+	 * @dataProvider rejectedTargetUrls
+	 */
+	public function test_patch_rejects_an_unusable_target_url( string $url ): void {
+		$this->asAdmin();
+
+		$request = new WP_REST_Request( 'PATCH', '/rlt/v1/links/' . $this->link['code'] );
+		$request->set_param( 'target_url', $url );
+
+		$this->assertSame( 400, rest_get_server()->dispatch( $request )->get_status() );
+		$this->assertSame(
+			'https://hb.afl.rakuten.co.jp/hgc/a',
+			$this->links->findById( $this->link['id'] )['target_url'],
+			'A rejected URL must not be stored.'
+		);
+	}
+
+	public static function rejectedTargetUrls(): array {
+		return array(
+			'javascript'        => array( 'javascript://hb.afl.rakuten.co.jp/%0aalert(1)' ),
+			'data'              => array( 'data://hb.afl.rakuten.co.jp/x' ),
+			// スキームがないURLは esc_url_raw を素通りするが、遷移先としては使えない。
+			'protocol relative' => array( '//evil.example.com/x' ),
+			'no scheme at all'  => array( 'evil.example.com/x' ),
+			'empty'             => array( '' ),
+			'too long'          => array( 'https://hb.afl.rakuten.co.jp/?q=' . str_repeat( 'a', 2100 ) ),
+		);
+	}
+
 	public function test_limit_is_clamped(): void {
 		$this->asAdmin();
 
@@ -6025,7 +7062,7 @@ final class StatsControllerTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StatsControllerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StatsControllerTest
 ```
 
 Expected: FAIL — `Class "RLT\Api\StatsController" not found`
@@ -6272,7 +7309,7 @@ final class StatsController {
 		$dead = array_values(
 			array_filter(
 				$topLinks,
-				static fn ( array $row ): bool => 0 === $row['clicks'] && $row['views'] > 0
+				static fn ( array $row ): bool => 0 === $row['clicks'] && $row['post_views'] > 0
 			)
 		);
 
@@ -6319,9 +7356,31 @@ final class StatsController {
 		$fields = array();
 
 		if ( null !== $request->get_param( 'target_url' ) ) {
-			$url = esc_url_raw( (string) $request->get_param( 'target_url' ), array( 'http', 'https' ) );
+			$raw = (string) $request->get_param( 'target_url' );
 
-			if ( '' === $url ) {
+			if ( strlen( $raw ) > 2000 ) {
+				return new \WP_Error(
+					'rlt_invalid_url',
+					__( '遷移先URLが長すぎます。', 'rakuten-link-tracker' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			// esc_url_raw() only sanitises characters and rejects a scheme when one
+			// is *present* -- a protocol-relative URL like "//evil.example.com/x"
+			// has no scheme to reject, so it sails through unchanged, and a bare
+			// "evil.example.com/x" is even normalised *into* a valid-looking
+			// "http://evil.example.com/x" (WP assumes a missing scheme means a
+			// relative URL and fills one in). Checking the scheme on the raw,
+			// pre-sanitisation input -- the same thing RedirectHandler's own
+			// scheme check protects against -- is what makes this endpoint's own
+			// error message ("must start with http or https") actually true,
+			// rather than accidentally true because of a second, independent
+			// check elsewhere.
+			$rawScheme = strtolower( (string) parse_url( $raw, PHP_URL_SCHEME ) );
+			$url       = esc_url_raw( $raw, array( 'http', 'https' ) );
+
+			if ( '' === $url || ! in_array( $rawScheme, array( 'http', 'https' ), true ) ) {
 				return new \WP_Error(
 					'rlt_invalid_url',
 					__( '遷移先URLは http または https で始まる必要があります。', 'rakuten-link-tracker' ),
@@ -6395,10 +7454,10 @@ final class StatsController {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StatsControllerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StatsControllerTest
 ```
 
-Expected: PASS — `OK (18 tests, ...)`
+Expected: PASS — `OK (24 tests, 50 assertions)`
 
 - [ ] **Step 6: コミット**
 
@@ -6422,7 +7481,8 @@ git commit -m "feat: 統計の読み取りREST APIとAPIキー認証を追加"
   - `RLT\Api\ExportController::register(): void` / `registerRoutes(): void`
   - `exportClicks(\WP_REST_Request $request): \WP_REST_Response`
   - `exportViews(\WP_REST_Request $request): \WP_REST_Response`
-  - `toCsv(array $rows, array $headers): string`
+  - `toCsv(array $rows, array $headers): string` — 各フィールドは `guardFormula()` を通してから書き出す
+  - `guardFormula(mixed $value): mixed` — 値が `=` `+` `-` `@` で始まる文字列なら先頭にシングルクォートを足し、表計算ソフトに数式として実行されるのを防ぐ（`referer` はビジター由来のため信用できない）
   - `serve(bool $served, mixed $result, \WP_REST_Request $request, \WP_REST_Server $server): bool` — `$result` は `WP_REST_Response` とは限らないため型宣言を付けない
 
 - [ ] **Step 1: 失敗するテストを書く**
@@ -6525,13 +7585,56 @@ final class ExportControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 401, $this->dispatch( '/rlt/v1/export/clicks' )->get_status() );
 	}
+
+	/**
+	 * @dataProvider formulaPrefixes
+	 */
+	public function test_a_formula_like_referer_is_neutralised_in_the_csv( string $payload ): void {
+		global $wpdb;
+
+		$wpdb->update(
+			Installer::clicksTable(),
+			array( 'referer' => $payload ),
+			array( 'post_id' => 42 )
+		);
+
+		$csv = $this->dispatch( '/rlt/v1/export/clicks' )->get_data();
+
+		// 表計算ソフトは = + - @ で始まるセルを数式として実行する。
+		// リファラは訪問者が自由に送れるため、そのまま書き出してはならない。
+		$guarded = "'" . $payload;
+		$this->assertStringNotContainsString( ',' . $payload, $csv );
+		$this->assertStringNotContainsString( '"' . $payload, $csv );
+		// payload 自体が二重引用符を含むことがある（"at" データセット）ため、
+		// fputcsv() が施す引用符の二重化まで再現した上で比較する。
+		if ( false !== strpbrk( $guarded, ",\"\n" ) ) {
+			$guarded = '"' . str_replace( '"', '""', $guarded ) . '"';
+		}
+		$this->assertStringContainsString( $guarded, $csv );
+	}
+
+	public static function formulaPrefixes(): array {
+		return array(
+			'equals' => array( '=cmd|/c calc!A1' ),
+			'plus'   => array( '+SUM(1+1)' ),
+			'minus'  => array( '-1+1' ),
+			'at'     => array( '@HYPERLINK("http://evil")' ),
+		);
+	}
+
+	public function test_an_ordinary_referer_is_left_alone(): void {
+		$csv = $this->dispatch( '/rlt/v1/export/clicks' )->get_data();
+
+		$this->assertStringContainsString( 'https://www.google.com/', $csv );
+		$this->assertStringNotContainsString( "'https://www.google.com/", $csv );
+	}
 }
 ```
 
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ExportControllerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ExportControllerTest
 ```
 
 Expected: FAIL — `Class "RLT\Api\ExportController" not found`
@@ -6632,7 +7735,7 @@ final class ExportController {
 		foreach ( $rows as $row ) {
 			$line = array();
 			foreach ( $headers as $header ) {
-				$line[] = $row[ $header ] ?? '';
+				$line[] = self::guardFormula( $row[ $header ] ?? '' );
 			}
 			fputcsv( $handle, $line );
 		}
@@ -6642,6 +7745,30 @@ final class ExportController {
 		fclose( $handle );
 
 		return $csv;
+	}
+
+	/**
+	 * fputcsv() escapes commas, quotes and newlines, but nothing stops Excel or
+	 * Google Sheets from executing a cell whose value begins with =, +, - or @
+	 * as a formula. `referer` (and, via post content, `label`) is filled from
+	 * data an anonymous visitor fully controls (e.g. the Referer header), so a
+	 * value like `=cmd|/c calc!A1` reaches this export verbatim and runs the
+	 * moment the site owner opens their own file. Prefixing such a value with a
+	 * leading single quote keeps every spreadsheet application treating it as
+	 * inert text.
+	 *
+	 * @param mixed $value
+	 */
+	private static function guardFormula( $value ): mixed {
+		if ( ! is_string( $value ) || '' === $value ) {
+			return $value;
+		}
+
+		if ( in_array( $value[0], array( '=', '+', '-', '@' ), true ) ) {
+			return "'" . $value;
+		}
+
+		return $value;
 	}
 
 	/**
@@ -6691,10 +7818,10 @@ final class ExportController {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ExportControllerTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ExportControllerTest
 ```
 
-Expected: PASS — `OK (8 tests, ...)`
+Expected: PASS — `OK (13 tests, 27 assertions)`
 
 - [ ] **Step 6: コミット**
 
@@ -6831,7 +7958,7 @@ final class CronTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter CronTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter CronTest
 ```
 
 Expected: FAIL — `Class "RLT\Cron" not found`
@@ -6917,7 +8044,7 @@ register_deactivation_hook(
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter CronTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter CronTest
 ```
 
 Expected: PASS — `OK (6 tests, ...)`
@@ -7043,7 +8170,7 @@ final class SvgChartTest extends TestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter SvgChartTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter SvgChartTest
 ```
 
 Expected: FAIL — `Class "RLT\Admin\SvgChart" not found`
@@ -7163,7 +8290,7 @@ final class SvgChart {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist --filter SvgChartTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist --filter SvgChartTest
 ```
 
 Expected: PASS — `OK (9 tests, ...)`
@@ -7341,7 +8468,7 @@ final class DashboardPageTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DashboardPageTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DashboardPageTest
 ```
 
 Expected: FAIL — `Class "RLT\Admin\AdminMenu" not found`
@@ -7784,7 +8911,7 @@ final class SettingsPage {
 ```
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DashboardPageTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DashboardPageTest
 ```
 
 Expected: PASS — `OK (10 tests, ...)`
@@ -7990,7 +9117,7 @@ final class LinksListTableTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinksListTableTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinksListTableTest
 ```
 
 Expected: FAIL — `Class "RLT\Admin\LinksListTable" not found`
@@ -8445,7 +9572,7 @@ final class LinkDetailPage {
 - [ ] **Step 6: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinksListTableTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter LinksListTableTest
 ```
 
 Expected: PASS — `OK (10 tests, ...)`
@@ -8573,7 +9700,7 @@ final class PostsReportPageTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostsReportPageTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostsReportPageTest
 ```
 
 Expected: FAIL — `render()` が何も出力しない
@@ -8684,7 +9811,7 @@ final class PostsReportPage {
 - [ ] **Step 4: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostsReportPageTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter PostsReportPageTest
 ```
 
 Expected: PASS — `OK (7 tests, ...)`
@@ -8845,7 +9972,7 @@ final class BulkConverterTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BulkConverterTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BulkConverterTest
 ```
 
 Expected: FAIL — `Class "RLT\Admin\BulkConverter" not found`
@@ -9069,7 +10196,7 @@ final class BulkConverter {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BulkConverterTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter BulkConverterTest
 ```
 
 Expected: PASS — `OK (7 tests, ...)`
@@ -9285,7 +10412,7 @@ final class SettingsPageTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsPageTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsPageTest
 ```
 
 Expected: FAIL — `Undefined constant RLT\Admin\SettingsPage::NONCE`
@@ -9609,7 +10736,7 @@ final class SettingsPage {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsPageTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter SettingsPageTest
 ```
 
 Expected: PASS — `OK (11 tests, ...)`
@@ -9746,7 +10873,7 @@ final class UninstallTest extends WP_UnitTestCase {
 - [ ] **Step 2: テストを走らせて失敗を確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter UninstallTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter UninstallTest
 ```
 
 Expected: FAIL — `Call to undefined method RLT\Installer::restoreAllPosts()`
@@ -9799,6 +10926,7 @@ Expected: FAIL — `Call to undefined method RLT\Installer::restoreAllPosts()`
 		delete_option( ApiKeyManager::OPTION );
 		delete_option( self::VERSION_OPTION );
 		delete_transient( 'rlt_new_api_key' );
+		delete_transient( self::SCHEMA_CHECK_TRANSIENT );
 	}
 ```
 
@@ -9834,7 +10962,7 @@ if ( ! defined( 'RLT_PLUGIN_FILE' ) ) {
 - [ ] **Step 5: テストが通ることを確認する**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist --filter UninstallTest"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter UninstallTest
 ```
 
 Expected: PASS — `OK (6 tests, ...)`
@@ -9857,8 +10985,8 @@ git commit -m "feat: アンインストール時に本文を復元してから�
 - [ ] **Step 1: 全テストを通す**
 
 ```powershell
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist"
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist
 ```
 
 Expected: 両方とも `OK`。1件でも失敗したらここで止めて直す。
@@ -9866,10 +10994,10 @@ Expected: 両方とも `OK`。1件でも失敗したらここで止めて直す�
 - [ ] **Step 2: 実際のブラウザで一連の流れを確認する**
 
 ```powershell
-npx wp-env run cli "wp plugin activate rakuten-link-tracker"
-npx wp-env run cli "wp rewrite structure '/%postname%/'"
-npx wp-env run cli "wp rewrite flush"
-npx wp-env run cli "wp post create --post_title='テストホテル記事' --post_status=publish --porcelain --post_content='<p><a href=\"https://hb.afl.rakuten.co.jp/hgc/abc123/?pc=https%3A%2F%2Ftravel.rakuten.co.jp%2F\">ホテル雅叙園東京</a></p><img src=\"https://hb.afl.rakuten.co.jp/hsc/abc123/?me_id=1\" width=\"1\" height=\"1\">'"
+npx @wordpress/env run cli -- wp plugin activate rakuten-link-tracker
+npx @wordpress/env run cli -- wp rewrite structure '/%postname%/'
+npx @wordpress/env run cli -- wp rewrite flush
+npx @wordpress/env run cli -- wp post create --post_title='テストホテル記事' --post_status=publish --porcelain --post_content='<p><a href=\https://hb.afl.rakuten.co.jp/hgc/abc123/?pc=https%3A%2F%2Ftravel.rakuten.co.jp%2F\">ホテル雅叙園東京</a></p><img src=\"https://hb.afl.rakuten.co.jp/hsc/abc123/?me_id=1\" width=\"1\" height=\"1\">'"
 ```
 
 続いて以下を目視で確認する。
@@ -9966,13 +11094,13 @@ curl -H "X-RLT-Key: rlt_xxxxxxxx" \
 
 ```powershell
 docker run --rm -v "${PWD}:/app" -w /app composer:2 install
-npx wp-env start
+npx @wordpress/env start
 
 # 単体テスト（WordPress 非依存）
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-unit.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist
 
 # 統合テスト
-npx wp-env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker "vendor/bin/phpunit -c phpunit-integration.xml.dist"
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist
 ```
 
 ## アンインストールについて
