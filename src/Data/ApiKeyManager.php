@@ -94,6 +94,12 @@ final class ApiKeyManager {
 		$keys = self::stored();
 
 		foreach ( $keys as $id => $record ) {
+			// A record's id is generated as 16 hex characters, but PHP silently
+			// coerces an array key that happens to be all digits from string to
+			// int (roughly 1 in 4,300 keys). touchLastUsed() declares string $id
+			// under strict_types, so that int must be cast back before use here.
+			$id = (string) $id;
+
 			// A record without a hash (corrupt/legacy data) can never match; skip it
 			// rather than let hash_equals() coerce a missing value into a comparison.
 			if ( ! isset( $record['hash'] ) || ! hash_equals( (string) $record['hash'], $hash ) ) {

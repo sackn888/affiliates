@@ -89,7 +89,7 @@ final class ExportController {
 		foreach ( $rows as $row ) {
 			$line = array();
 			foreach ( $headers as $header ) {
-				$line[] = $row[ $header ] ?? '';
+				$line[] = self::guardFormula( $row[ $header ] ?? '' );
 			}
 			fputcsv( $handle, $line );
 		}
@@ -99,6 +99,30 @@ final class ExportController {
 		fclose( $handle );
 
 		return $csv;
+	}
+
+	/**
+	 * fputcsv() escapes commas, quotes and newlines, but nothing stops Excel or
+	 * Google Sheets from executing a cell whose value begins with =, +, - or @
+	 * as a formula. `referer` (and, via post content, `label`) is filled from
+	 * data an anonymous visitor fully controls (e.g. the Referer header), so a
+	 * value like `=cmd|/c calc!A1` reaches this export verbatim and runs the
+	 * moment the site owner opens their own file. Prefixing such a value with a
+	 * leading single quote keeps every spreadsheet application treating it as
+	 * inert text.
+	 *
+	 * @param mixed $value
+	 */
+	private static function guardFormula( $value ): mixed {
+		if ( ! is_string( $value ) || '' === $value ) {
+			return $value;
+		}
+
+		if ( in_array( $value[0], array( '=', '+', '-', '@' ), true ) ) {
+			return "'" . $value;
+		}
+
+		return $value;
 	}
 
 	/**

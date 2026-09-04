@@ -71,4 +71,18 @@ final class DateRangeTest extends WP_UnitTestCase {
 		$this->assertSame( '2026-09-01', $range->fromDate() );
 		$this->assertSame( '2026-09-03', $range->toDate() );
 	}
+
+	public function test_from_request_clamps_an_absurd_span(): void {
+		$range = DateRange::fromRequest( '1970-01-01', '2026-09-04', 28 );
+
+		$this->assertSame( DateRange::MAX_DAYS, $range->dayCount() );
+		// 終端は要求どおりで、始端だけを引き寄せる。
+		$this->assertSame( '2026-09-04', $range->toDate() );
+	}
+
+	public function test_from_request_leaves_a_reasonable_span_alone(): void {
+		$range = DateRange::fromRequest( '2026-01-01', '2026-03-31', 28 );
+
+		$this->assertSame( 90, $range->dayCount() );
+	}
 }

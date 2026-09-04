@@ -205,6 +205,35 @@ final class StatsControllerTest extends WP_UnitTestCase {
 		$this->assertSame( 400, rest_get_server()->dispatch( $request )->get_status() );
 	}
 
+	/**
+	 * @dataProvider rejectedTargetUrls
+	 */
+	public function test_patch_rejects_an_unusable_target_url( string $url ): void {
+		$this->asAdmin();
+
+		$request = new WP_REST_Request( 'PATCH', '/rlt/v1/links/' . $this->link['code'] );
+		$request->set_param( 'target_url', $url );
+
+		$this->assertSame( 400, rest_get_server()->dispatch( $request )->get_status() );
+		$this->assertSame(
+			'https://hb.afl.rakuten.co.jp/hgc/a',
+			$this->links->findById( $this->link['id'] )['target_url'],
+			'A rejected URL must not be stored.'
+		);
+	}
+
+	public static function rejectedTargetUrls(): array {
+		return array(
+			'javascript'        => array( 'javascript://hb.afl.rakuten.co.jp/%0aalert(1)' ),
+			'data'              => array( 'data://hb.afl.rakuten.co.jp/x' ),
+			// スキームがないURLは esc_url_raw を素通りするが、遷移先としては使えない。
+			'protocol relative' => array( '//evil.example.com/x' ),
+			'no scheme at all'  => array( 'evil.example.com/x' ),
+			'empty'             => array( '' ),
+			'too long'          => array( 'https://hb.afl.rakuten.co.jp/?q=' . str_repeat( 'a', 2100 ) ),
+		);
+	}
+
 	public function test_limit_is_clamped(): void {
 		$this->asAdmin();
 

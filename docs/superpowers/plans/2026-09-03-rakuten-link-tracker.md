@@ -5316,7 +5316,8 @@ git commit -m "feat: JSビーコンによる記事PV計測を追加"
 - Produces:
   - `RLT\Support\DateRange::__construct(string $from, string $to)` — 両方 `Y-m-d`、サイトのタイムゾーン基準
   - `RLT\Support\DateRange::lastDays(int $days): self`
-  - `RLT\Support\DateRange::fromRequest(?string $from, ?string $to, int $defaultDays = 28): self`
+  - `RLT\Support\DateRange::fromRequest(?string $from, ?string $to, int $defaultDays = 28): self` — 期間が `MAX_DAYS`（731日）を超える場合は終端を保ったまま始端を引き寄せてクランプする
+  - `RLT\Support\DateRange::MAX_DAYS` — `fromRequest()` が許容する最大日数（731日）
   - `fromDate(): string` / `toDate(): string`
   - `startUtc(): string` / `endUtc(): string` — `Y-m-d H:i:s`
   - `days(): array` — `['2026-09-01', ...]` の全日リスト
@@ -5402,6 +5403,20 @@ final class DateRangeTest extends WP_UnitTestCase {
 		$this->assertSame( '2026-09-01', $range->fromDate() );
 		$this->assertSame( '2026-09-03', $range->toDate() );
 	}
+
+	public function test_from_request_clamps_an_absurd_span(): void {
+		$range = DateRange::fromRequest( '1970-01-01', '2026-09-04', 28 );
+
+		$this->assertSame( DateRange::MAX_DAYS, $range->dayCount() );
+		// 終端は要求どおりで、始端だけを引き寄せる。
+		$this->assertSame( '2026-09-04', $range->toDate() );
+	}
+
+	public function test_from_request_leaves_a_reasonable_span_alone(): void {
+		$range = DateRange::fromRequest( '2026-01-01', '2026-03-31', 28 );
+
+		$this->assertSame( 90, $range->dayCount() );
+	}
 }
 ```
 
@@ -5434,6 +5449,16 @@ namespace RLT\Support;
 final class DateRange {
 
 	private const FORMAT = 'Y-m-d';
+
+	/**
+	 * Two years plus a leap day. The read-only API key this endpoint accepts is
+	 * explicitly meant to be handed to a lower-trust holder (a BI tool, an AI
+	 * tool), and clicksForExport()/viewsForExport() have no LIMIT, so an
+	 * unbounded "from" (e.g. 1970-01-01) is a cheap way for that bearer to
+	 * force an unbounded query and response body. Capping the span here closes
+	 * that off without rejecting the request outright.
+	 */
+	public const MAX_DAYS = 731;
 
 	private \DateTimeImmutable $from;
 	private \DateTimeImmutable $to;
@@ -5468,7 +5493,16 @@ final class DateRange {
 			return self::lastDays( $defaultDays );
 		}
 
-		return new self( (string) $from, (string) $to );
+		$range = new self( (string) $from, (string) $to );
+
+		if ( $range->dayCount() > self::MAX_DAYS ) {
+			// Clamp rather than reject: keep the end the caller asked for and pull
+			// the start forward so the span is at most MAX_DAYS days.
+			$clampedStart = $range->to->modify( '-' . ( self::MAX_DAYS - 1 ) . ' days' );
+			$range        = new self( $clampedStart->format( self::FORMAT ), $range->toDate() );
+		}
+
+		return $range;
 	}
 
 	public function fromDate(): string {
@@ -5547,7 +5581,7 @@ final class DateRange {
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter DateRangeTest
 ```
 
-Expected: PASS — `OK (9 tests, ...)`
+Expected: PASS — `OK (11 tests, ...)`
 
 - [ ] **Step 5: コミット**
 
@@ -6487,6 +6521,24 @@ final class ApiKeyManagerTest extends WP_UnitTestCase {
 			$this->assertNotNull( ApiKeyManager::verify( $key['key'] ), 'A created key stopped verifying.' );
 		}
 	}
+
+	public function test_an_all_digit_id_does_not_break_verify_or_revoke(): void {
+		$created = ApiKeyManager::create( 'BI' );
+
+		// 16桁の16進IDがすべて数字になることが約4300回に1回あり、
+		// PHP はその配列キーを int に暗黙変換する。
+		$keys                      = get_option( ApiKeyManager::OPTION );
+		$record                    = $keys[ $created['id'] ];
+		unset( $keys[ $created['id'] ] );
+		$record['id']              = '1234567890123456';
+		$keys['1234567890123456']  = $record;
+		update_option( ApiKeyManager::OPTION, $keys, false );
+
+		$this->assertNotNull( ApiKeyManager::verify( $created['key'] ) );
+		$this->assertCount( 1, ApiKeyManager::all() );
+		$this->assertTrue( ApiKeyManager::revoke( '1234567890123456' ) );
+		$this->assertNull( ApiKeyManager::verify( $created['key'] ) );
+	}
 }
 ```
 
@@ -6599,6 +6651,12 @@ final class ApiKeyManager {
 		$keys = self::stored();
 
 		foreach ( $keys as $id => $record ) {
+			// A record's id is generated as 16 hex characters, but PHP silently
+			// coerces an array key that happens to be all digits from string to
+			// int (roughly 1 in 4,300 keys). touchLastUsed() declares string $id
+			// under strict_types, so that int must be cast back before use here.
+			$id = (string) $id;
+
 			// A record without a hash (corrupt/legacy data) can never match; skip it
 			// rather than let hash_equals() coerce a missing value into a comparison.
 			if ( ! isset( $record['hash'] ) || ! hash_equals( (string) $record['hash'], $hash ) ) {
@@ -6705,7 +6763,7 @@ final class ApiKeyManager {
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ApiKeyManagerTest
 ```
 
-Expected: PASS — `OK (13 tests, 48 assertions)`
+Expected: PASS — `OK (14 tests, 52 assertions)`
 
 - [ ] **Step 5: コミット**
 
@@ -6952,6 +7010,35 @@ final class StatsControllerTest extends WP_UnitTestCase {
 		$request->set_param( 'target_url', 'javascript:alert(1)' );
 
 		$this->assertSame( 400, rest_get_server()->dispatch( $request )->get_status() );
+	}
+
+	/**
+	 * @dataProvider rejectedTargetUrls
+	 */
+	public function test_patch_rejects_an_unusable_target_url( string $url ): void {
+		$this->asAdmin();
+
+		$request = new WP_REST_Request( 'PATCH', '/rlt/v1/links/' . $this->link['code'] );
+		$request->set_param( 'target_url', $url );
+
+		$this->assertSame( 400, rest_get_server()->dispatch( $request )->get_status() );
+		$this->assertSame(
+			'https://hb.afl.rakuten.co.jp/hgc/a',
+			$this->links->findById( $this->link['id'] )['target_url'],
+			'A rejected URL must not be stored.'
+		);
+	}
+
+	public static function rejectedTargetUrls(): array {
+		return array(
+			'javascript'        => array( 'javascript://hb.afl.rakuten.co.jp/%0aalert(1)' ),
+			'data'              => array( 'data://hb.afl.rakuten.co.jp/x' ),
+			// スキームがないURLは esc_url_raw を素通りするが、遷移先としては使えない。
+			'protocol relative' => array( '//evil.example.com/x' ),
+			'no scheme at all'  => array( 'evil.example.com/x' ),
+			'empty'             => array( '' ),
+			'too long'          => array( 'https://hb.afl.rakuten.co.jp/?q=' . str_repeat( 'a', 2100 ) ),
+		);
 	}
 
 	public function test_limit_is_clamped(): void {
@@ -7269,9 +7356,31 @@ final class StatsController {
 		$fields = array();
 
 		if ( null !== $request->get_param( 'target_url' ) ) {
-			$url = esc_url_raw( (string) $request->get_param( 'target_url' ), array( 'http', 'https' ) );
+			$raw = (string) $request->get_param( 'target_url' );
 
-			if ( '' === $url ) {
+			if ( strlen( $raw ) > 2000 ) {
+				return new \WP_Error(
+					'rlt_invalid_url',
+					__( '遷移先URLが長すぎます。', 'rakuten-link-tracker' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			// esc_url_raw() only sanitises characters and rejects a scheme when one
+			// is *present* -- a protocol-relative URL like "//evil.example.com/x"
+			// has no scheme to reject, so it sails through unchanged, and a bare
+			// "evil.example.com/x" is even normalised *into* a valid-looking
+			// "http://evil.example.com/x" (WP assumes a missing scheme means a
+			// relative URL and fills one in). Checking the scheme on the raw,
+			// pre-sanitisation input -- the same thing RedirectHandler's own
+			// scheme check protects against -- is what makes this endpoint's own
+			// error message ("must start with http or https") actually true,
+			// rather than accidentally true because of a second, independent
+			// check elsewhere.
+			$rawScheme = strtolower( (string) parse_url( $raw, PHP_URL_SCHEME ) );
+			$url       = esc_url_raw( $raw, array( 'http', 'https' ) );
+
+			if ( '' === $url || ! in_array( $rawScheme, array( 'http', 'https' ), true ) ) {
 				return new \WP_Error(
 					'rlt_invalid_url',
 					__( '遷移先URLは http または https で始まる必要があります。', 'rakuten-link-tracker' ),
@@ -7348,7 +7457,7 @@ final class StatsController {
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter StatsControllerTest
 ```
 
-Expected: PASS — `OK (18 tests, ...)`
+Expected: PASS — `OK (24 tests, 50 assertions)`
 
 - [ ] **Step 6: コミット**
 
@@ -7372,7 +7481,8 @@ git commit -m "feat: 統計の読み取りREST APIとAPIキー認証を追加"
   - `RLT\Api\ExportController::register(): void` / `registerRoutes(): void`
   - `exportClicks(\WP_REST_Request $request): \WP_REST_Response`
   - `exportViews(\WP_REST_Request $request): \WP_REST_Response`
-  - `toCsv(array $rows, array $headers): string`
+  - `toCsv(array $rows, array $headers): string` — 各フィールドは `guardFormula()` を通してから書き出す
+  - `guardFormula(mixed $value): mixed` — 値が `=` `+` `-` `@` で始まる文字列なら先頭にシングルクォートを足し、表計算ソフトに数式として実行されるのを防ぐ（`referer` はビジター由来のため信用できない）
   - `serve(bool $served, mixed $result, \WP_REST_Request $request, \WP_REST_Server $server): bool` — `$result` は `WP_REST_Response` とは限らないため型宣言を付けない
 
 - [ ] **Step 1: 失敗するテストを書く**
@@ -7474,6 +7584,49 @@ final class ExportControllerTest extends WP_UnitTestCase {
 		wp_set_current_user( 0 );
 
 		$this->assertSame( 401, $this->dispatch( '/rlt/v1/export/clicks' )->get_status() );
+	}
+
+	/**
+	 * @dataProvider formulaPrefixes
+	 */
+	public function test_a_formula_like_referer_is_neutralised_in_the_csv( string $payload ): void {
+		global $wpdb;
+
+		$wpdb->update(
+			Installer::clicksTable(),
+			array( 'referer' => $payload ),
+			array( 'post_id' => 42 )
+		);
+
+		$csv = $this->dispatch( '/rlt/v1/export/clicks' )->get_data();
+
+		// 表計算ソフトは = + - @ で始まるセルを数式として実行する。
+		// リファラは訪問者が自由に送れるため、そのまま書き出してはならない。
+		$guarded = "'" . $payload;
+		$this->assertStringNotContainsString( ',' . $payload, $csv );
+		$this->assertStringNotContainsString( '"' . $payload, $csv );
+		// payload 自体が二重引用符を含むことがある（"at" データセット）ため、
+		// fputcsv() が施す引用符の二重化まで再現した上で比較する。
+		if ( false !== strpbrk( $guarded, ",\"\n" ) ) {
+			$guarded = '"' . str_replace( '"', '""', $guarded ) . '"';
+		}
+		$this->assertStringContainsString( $guarded, $csv );
+	}
+
+	public static function formulaPrefixes(): array {
+		return array(
+			'equals' => array( '=cmd|/c calc!A1' ),
+			'plus'   => array( '+SUM(1+1)' ),
+			'minus'  => array( '-1+1' ),
+			'at'     => array( '@HYPERLINK("http://evil")' ),
+		);
+	}
+
+	public function test_an_ordinary_referer_is_left_alone(): void {
+		$csv = $this->dispatch( '/rlt/v1/export/clicks' )->get_data();
+
+		$this->assertStringContainsString( 'https://www.google.com/', $csv );
+		$this->assertStringNotContainsString( "'https://www.google.com/", $csv );
 	}
 }
 ```
@@ -7582,7 +7735,7 @@ final class ExportController {
 		foreach ( $rows as $row ) {
 			$line = array();
 			foreach ( $headers as $header ) {
-				$line[] = $row[ $header ] ?? '';
+				$line[] = self::guardFormula( $row[ $header ] ?? '' );
 			}
 			fputcsv( $handle, $line );
 		}
@@ -7592,6 +7745,30 @@ final class ExportController {
 		fclose( $handle );
 
 		return $csv;
+	}
+
+	/**
+	 * fputcsv() escapes commas, quotes and newlines, but nothing stops Excel or
+	 * Google Sheets from executing a cell whose value begins with =, +, - or @
+	 * as a formula. `referer` (and, via post content, `label`) is filled from
+	 * data an anonymous visitor fully controls (e.g. the Referer header), so a
+	 * value like `=cmd|/c calc!A1` reaches this export verbatim and runs the
+	 * moment the site owner opens their own file. Prefixing such a value with a
+	 * leading single quote keeps every spreadsheet application treating it as
+	 * inert text.
+	 *
+	 * @param mixed $value
+	 */
+	private static function guardFormula( $value ): mixed {
+		if ( ! is_string( $value ) || '' === $value ) {
+			return $value;
+		}
+
+		if ( in_array( $value[0], array( '=', '+', '-', '@' ), true ) ) {
+			return "'" . $value;
+		}
+
+		return $value;
 	}
 
 	/**
@@ -7644,7 +7821,7 @@ final class ExportController {
 npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist --filter ExportControllerTest
 ```
 
-Expected: PASS — `OK (8 tests, ...)`
+Expected: PASS — `OK (13 tests, 27 assertions)`
 
 - [ ] **Step 6: コミット**
 

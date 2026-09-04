@@ -15,6 +15,16 @@ final class DateRange {
 
 	private const FORMAT = 'Y-m-d';
 
+	/**
+	 * Two years plus a leap day. The read-only API key this endpoint accepts is
+	 * explicitly meant to be handed to a lower-trust holder (a BI tool, an AI
+	 * tool), and clicksForExport()/viewsForExport() have no LIMIT, so an
+	 * unbounded "from" (e.g. 1970-01-01) is a cheap way for that bearer to
+	 * force an unbounded query and response body. Capping the span here closes
+	 * that off without rejecting the request outright.
+	 */
+	public const MAX_DAYS = 731;
+
 	private \DateTimeImmutable $from;
 	private \DateTimeImmutable $to;
 
@@ -53,7 +63,16 @@ final class DateRange {
 			return self::lastDays( $defaultDays );
 		}
 
-		return new self( (string) $from, (string) $to );
+		$range = new self( (string) $from, (string) $to );
+
+		if ( $range->dayCount() > self::MAX_DAYS ) {
+			// Clamp rather than reject: keep the end the caller asked for and pull
+			// the start forward so the span is at most MAX_DAYS days.
+			$clampedStart = $range->to->modify( '-' . ( self::MAX_DAYS - 1 ) . ' days' );
+			$range        = new self( $clampedStart->format( self::FORMAT ), $range->toDate() );
+		}
+
+		return $range;
 	}
 
 	public function fromDate(): string {

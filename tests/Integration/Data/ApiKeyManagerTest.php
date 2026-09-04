@@ -133,4 +133,22 @@ final class ApiKeyManagerTest extends WP_UnitTestCase {
 			$this->assertNotNull( ApiKeyManager::verify( $key['key'] ), 'A created key stopped verifying.' );
 		}
 	}
+
+	public function test_an_all_digit_id_does_not_break_verify_or_revoke(): void {
+		$created = ApiKeyManager::create( 'BI' );
+
+		// 16桁の16進IDがすべて数字になることが約4300回に1回あり、
+		// PHP はその配列キーを int に暗黙変換する。
+		$keys                      = get_option( ApiKeyManager::OPTION );
+		$record                    = $keys[ $created['id'] ];
+		unset( $keys[ $created['id'] ] );
+		$record['id']              = '1234567890123456';
+		$keys['1234567890123456']  = $record;
+		update_option( ApiKeyManager::OPTION, $keys, false );
+
+		$this->assertNotNull( ApiKeyManager::verify( $created['key'] ) );
+		$this->assertCount( 1, ApiKeyManager::all() );
+		$this->assertTrue( ApiKeyManager::revoke( '1234567890123456' ) );
+		$this->assertNull( ApiKeyManager::verify( $created['key'] ) );
+	}
 }

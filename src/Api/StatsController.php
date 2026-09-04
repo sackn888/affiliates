@@ -285,11 +285,31 @@ final class StatsController {
 		$fields = array();
 
 		if ( null !== $request->get_param( 'target_url' ) ) {
-			// Restricting the scheme here is what keeps this endpoint from becoming
-			// an open redirect -- the same class of bug RedirectHandler had to fix.
-			$url = esc_url_raw( (string) $request->get_param( 'target_url' ), array( 'http', 'https' ) );
+			$raw = (string) $request->get_param( 'target_url' );
 
-			if ( '' === $url ) {
+			if ( strlen( $raw ) > 2000 ) {
+				return new \WP_Error(
+					'rlt_invalid_url',
+					__( '遷移先URLが長すぎます。', 'rakuten-link-tracker' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			// esc_url_raw() only sanitises characters and rejects a scheme when one
+			// is *present* -- a protocol-relative URL like "//evil.example.com/x"
+			// has no scheme to reject, so it sails through unchanged, and a bare
+			// "evil.example.com/x" is even normalised *into* a valid-looking
+			// "http://evil.example.com/x" (WP assumes a missing scheme means a
+			// relative URL and fills one in). Checking the scheme on the raw,
+			// pre-sanitisation input -- the same thing RedirectHandler's own
+			// scheme check protects against -- is what makes this endpoint's own
+			// error message ("must start with http or https") actually true,
+			// rather than accidentally true because of a second, independent
+			// check elsewhere.
+			$rawScheme = strtolower( (string) parse_url( $raw, PHP_URL_SCHEME ) );
+			$url       = esc_url_raw( $raw, array( 'http', 'https' ) );
+
+			if ( '' === $url || ! in_array( $rawScheme, array( 'http', 'https' ), true ) ) {
 				return new \WP_Error(
 					'rlt_invalid_url',
 					__( '遷移先URLは http または https で始まる必要があります。', 'rakuten-link-tracker' ),

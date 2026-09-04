@@ -99,4 +99,49 @@ final class ExportControllerTest extends WP_UnitTestCase {
 
 		$this->assertSame( 401, $this->dispatch( '/rlt/v1/export/clicks' )->get_status() );
 	}
+
+	/**
+	 * @dataProvider formulaPrefixes
+	 */
+	public function test_a_formula_like_referer_is_neutralised_in_the_csv( string $payload ): void {
+		global $wpdb;
+
+		$wpdb->update(
+			Installer::clicksTable(),
+			array( 'referer' => $payload ),
+			array( 'post_id' => 42 )
+		);
+
+		$csv = $this->dispatch( '/rlt/v1/export/clicks' )->get_data();
+
+		// 表計算ソフトは = + - @ で始まるセルを数式として実行する。
+		// リファラは訪問者が自由に送れるため、そのまま書き出してはならない。
+		$guarded = "'" . $payload;
+		$this->assertStringNotContainsString( ',' . $payload, $csv );
+		$this->assertStringNotContainsString( '"' . $payload, $csv );
+		// The payload itself may contain a double quote (the "at" data set does),
+		// which fputcsv() doubles and wraps in quotes regardless of the formula
+		// guard; build the same CSV-quoted form here rather than assuming the
+		// guarded value appears byte-for-byte unescaped.
+		if ( false !== strpbrk( $guarded, ",\"\n" ) ) {
+			$guarded = '"' . str_replace( '"', '""', $guarded ) . '"';
+		}
+		$this->assertStringContainsString( $guarded, $csv );
+	}
+
+	public static function formulaPrefixes(): array {
+		return array(
+			'equals' => array( '=cmd|/c calc!A1' ),
+			'plus'   => array( '+SUM(1+1)' ),
+			'minus'  => array( '-1+1' ),
+			'at'     => array( '@HYPERLINK("http://evil")' ),
+		);
+	}
+
+	public function test_an_ordinary_referer_is_left_alone(): void {
+		$csv = $this->dispatch( '/rlt/v1/export/clicks' )->get_data();
+
+		$this->assertStringContainsString( 'https://www.google.com/', $csv );
+		$this->assertStringNotContainsString( "'https://www.google.com/", $csv );
+	}
 }
