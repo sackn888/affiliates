@@ -43,6 +43,33 @@ final class DashboardPageTest extends WP_UnitTestCase {
 		$this->assertContains( AdminMenu::SLUG_SETTINGS, $slugs );
 	}
 
+	public function test_the_toplevel_hook_has_exactly_one_callback(): void {
+		global $wp_filter;
+
+		( new AdminMenu() )->addPages();
+
+		$hookName = 'toplevel_page_' . AdminMenu::SLUG;
+
+		$this->assertArrayHasKey( $hookName, $wp_filter );
+
+		$callbackCount = 0;
+		foreach ( $wp_filter[ $hookName ]->callbacks as $priority => $callbacks ) {
+			$callbackCount += count( $callbacks );
+		}
+
+		$this->assertSame( 1, $callbackCount, 'The toplevel dashboard hook must have exactly one callback, or the page renders twice.' );
+	}
+
+	public function test_firing_the_toplevel_hook_renders_the_dashboard_exactly_once(): void {
+		( new AdminMenu() )->addPages();
+
+		ob_start();
+		do_action( 'toplevel_page_' . AdminMenu::SLUG );
+		$html = (string) ob_get_clean();
+
+		$this->assertSame( 1, substr_count( $html, 'rlt-dashboard' ), 'Firing the toplevel hook must render the dashboard exactly once.' );
+	}
+
 	public function test_render_outputs_the_summary_cards(): void {
 		$html = $this->render();
 

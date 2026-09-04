@@ -17,13 +17,38 @@ final class AdminMenu {
 	public const SLUG_POSTS    = 'rlt-posts';
 	public const SLUG_SETTINGS = 'rlt-settings';
 
+	private DashboardPage $dashboardPage;
+	private LinkDetailPage $linkDetailPage;
+	private PostsReportPage $postsReportPage;
+	private SettingsPage $settingsPage;
+	private BulkConverter $bulkConverter;
+
+	public function __construct() {
+		// Constructed once and reused everywhere: WordPress dedupes a hook
+		// callback by _wp_filter_build_unique_id(), which for an object
+		// method is spl_object_hash($object) . $method. Two *different*
+		// instances of the same class therefore produce two different ids
+		// and both survive registration -- e.g. add_menu_page() and
+		// add_submenu_page() below both resolve to the hook name
+		// "toplevel_page_rakuten-link-tracker", and passing a fresh
+		// `new DashboardPage()` to each used to silently double-register the
+		// page, so it rendered twice. Holding a single instance per class
+		// guarantees any hook it is attached to can only ever be registered
+		// once.
+		$this->dashboardPage   = new DashboardPage();
+		$this->linkDetailPage  = new LinkDetailPage();
+		$this->postsReportPage = new PostsReportPage();
+		$this->settingsPage    = new SettingsPage();
+		$this->bulkConverter   = new BulkConverter();
+	}
+
 	public function register(): void {
 		add_action( 'admin_menu', array( $this, 'addPages' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue' ) );
 
-		( new LinkDetailPage() )->register();
-		( new SettingsPage() )->register();
-		( new BulkConverter() )->register();
+		$this->linkDetailPage->register();
+		$this->settingsPage->register();
+		$this->bulkConverter->register();
 	}
 
 	public function addPages(): void {
@@ -32,7 +57,7 @@ final class AdminMenu {
 			__( '楽天リンク', 'rakuten-link-tracker' ),
 			Installer::CAPABILITY,
 			self::SLUG,
-			array( new DashboardPage(), 'render' ),
+			array( $this->dashboardPage, 'render' ),
 			'dashicons-chart-line',
 			58
 		);
@@ -43,7 +68,7 @@ final class AdminMenu {
 			__( 'ダッシュボード', 'rakuten-link-tracker' ),
 			Installer::CAPABILITY,
 			self::SLUG,
-			array( new DashboardPage(), 'render' )
+			array( $this->dashboardPage, 'render' )
 		);
 
 		add_submenu_page(
@@ -52,7 +77,7 @@ final class AdminMenu {
 			__( 'リンク一覧', 'rakuten-link-tracker' ),
 			Installer::CAPABILITY,
 			self::SLUG_LINKS,
-			array( new LinkDetailPage(), 'route' )
+			array( $this->linkDetailPage, 'route' )
 		);
 
 		add_submenu_page(
@@ -61,7 +86,7 @@ final class AdminMenu {
 			__( '記事別レポート', 'rakuten-link-tracker' ),
 			Installer::CAPABILITY,
 			self::SLUG_POSTS,
-			array( new PostsReportPage(), 'render' )
+			array( $this->postsReportPage, 'render' )
 		);
 
 		add_submenu_page(
@@ -70,7 +95,7 @@ final class AdminMenu {
 			__( '設定', 'rakuten-link-tracker' ),
 			'manage_options',
 			self::SLUG_SETTINGS,
-			array( new SettingsPage(), 'render' )
+			array( $this->settingsPage, 'render' )
 		);
 	}
 
