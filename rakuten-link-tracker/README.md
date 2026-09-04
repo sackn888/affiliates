@@ -36,7 +36,7 @@
 
 一度インストールすれば、以降は `sackn888/affiliates` リポジトリの `main` ブランチを自動的に追跡して自己更新します（詳細は次節）。
 
-（`vendor/` はComposer自身のオートロード用の足場のみを含み、開発時のテスト実行にしか使いません。`RLT\` 名前空間から `src/` を解決する小さなオートローダーをプラグイン本体が持っているため、`vendor/` が存在しなくても起動します。同様に `tests/`、`composer.json`、`composer.lock`、`phpunit-unit.xml.dist`、`phpunit-integration.xml.dist` もインストール先に残りますが、リポジトリをそのまま配置する都合上そうなっているだけで、実行時には一切読み込まれない無害なファイルです。）
+（`RLT\` 名前空間から `src/` を解決する小さなオートローダーをプラグイン本体が持っているため、Composerの `vendor/` が存在しなくても起動します。`tests/`、`composer.json`、`composer.lock`、`phpunit-unit.xml.dist`、`phpunit-integration.xml.dist` はリポジトリルート（`rakuten-link-tracker/` の一つ上の階層）に置かれており、`rakuten-link-tracker/` ディレクトリだけをインストール先に配置すればこれらの開発用ファイルは一切含まれません。）
 
 ## 更新の仕組み
 
@@ -110,20 +110,20 @@ curl -H "X-RLT-Key: rlt_xxxxxxxx" \
 
 ## 開発
 
-開発コマンドはリポジトリのルート（`rakuten-link-tracker/` の一つ上の階層。`.wp-env.json` がある場所）から実行してください。
+開発コマンドはリポジトリのルート（`rakuten-link-tracker/` の一つ上の階層。`.wp-env.json` がある場所）から実行してください。`tests/`、`composer.json`、`composer.lock`、phpunitの設定はすべてこのルートに置かれています。
 
 ```powershell
-docker run --rm -v "${PWD}\rakuten-link-tracker:/app" -w /app composer:2 install
+docker run --rm -v "${PWD}:/app" -w /app composer:2 install
 npx @wordpress/env start
 
 # 単体テスト（WordPress 非依存）
-npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-unit.xml.dist
+npx @wordpress/env run tests-cli --env-cwd=wp-content/rlt-dev -- vendor/bin/phpunit -c phpunit-unit.xml.dist
 
 # 統合テスト
-npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/rakuten-link-tracker -- vendor/bin/phpunit -c phpunit-integration.xml.dist
+npx @wordpress/env run tests-cli --env-cwd=wp-content/rlt-dev -- vendor/bin/phpunit -c phpunit-integration.xml.dist
 ```
 
-このマシンにはPHPが入っていないため、Composerのコマンドはすべて上記のようにDocker経由で実行してください。
+このマシンにはPHPが入っていないため、Composerのコマンドはすべて上記のようにDocker経由で実行してください。`.wp-env.json` はリポジトリルート全体を `wp-content/rlt-dev` にもマッピングしているため、`tests/` や `vendor/` はそちら経由でコンテナから見えます（プラグイン本体は引き続き `wp-content/plugins/rakuten-link-tracker` にもマッピングされ、統合テストは `muplugins_loaded` 経由でそちらを読み込みます）。
 
 ## アンインストールについて
 

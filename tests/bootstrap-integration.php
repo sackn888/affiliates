@@ -15,7 +15,11 @@ require_once $rlt_tests_dir . '/includes/functions.php';
 tests_add_filter(
 	'muplugins_loaded',
 	static function () {
-		require dirname( __DIR__ ) . '/rakuten-link-tracker.php';
+		// Load the copy installed at wp-content/plugins/rakuten-link-tracker
+		// (not the repo-root checkout mapped in for tests/ and vendor/), so
+		// that plugin_basename() and friends resolve exactly as they do on a
+		// live site.
+		require WP_PLUGIN_DIR . '/rakuten-link-tracker/rakuten-link-tracker.php';
 	}
 );
 
