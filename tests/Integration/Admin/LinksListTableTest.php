@@ -76,6 +76,35 @@ final class LinksListTableTest extends WP_UnitTestCase {
 		$this->assertSame( '大阪の宿', $items[0]['label'] );
 	}
 
+	public function test_order_asc_reverses_the_default_sort(): void {
+		global $wpdb;
+
+		$other = $this->links->findOrCreate( 'https://hb.afl.rakuten.co.jp/hgc/b', $this->postId, 'ホテルB' );
+
+		$wpdb->insert(
+			Installer::clicksTable(),
+			array(
+				'link_id'      => $other['id'],
+				'post_id'      => $this->postId,
+				'clicked_at'   => gmdate( 'Y-m-d H:i:s' ),
+				'visitor_hash' => str_pad( 'v', 64, '0' ),
+				'referer'      => '',
+				'device'       => 1,
+				'is_bot'       => 0,
+			)
+		);
+
+		// Default (desc): the link with a click sorts first.
+		$descItems = $this->table()->items;
+		$this->assertSame( $other['code'], $descItems[0]['code'] );
+
+		$_GET['order'] = 'asc';
+		$ascItems      = $this->table()->items;
+
+		$this->assertSame( $this->link['code'], $ascItems[0]['code'] );
+		$this->assertNotSame( $descItems[0]['code'], $ascItems[0]['code'] );
+	}
+
 	public function test_list_screen_renders_the_short_url(): void {
 		ob_start();
 		( new LinkDetailPage() )->route();

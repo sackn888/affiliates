@@ -40,7 +40,7 @@ final class LinksListTable extends \WP_List_Table {
 			'code'       => __( '短縮URL', 'rakuten-link-tracker' ),
 			'post'       => __( '掲載記事', 'rakuten-link-tracker' ),
 			'clicks'     => __( 'クリック', 'rakuten-link-tracker' ),
-			'ctr'        => __( 'CTR', 'rakuten-link-tracker' ),
+			'ctr'        => __( 'CTR（記事PV比）', 'rakuten-link-tracker' ),
 			'last_click' => __( '最終クリック', 'rakuten-link-tracker' ),
 			'status'     => __( '状態', 'rakuten-link-tracker' ),
 		);
@@ -63,9 +63,18 @@ final class LinksListTable extends \WP_List_Table {
 		$postId  = isset( $_GET['post_id'] ) ? absint( wp_unslash( $_GET['post_id'] ) ) : 0;
 		$search  = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['s'] ) ) : '';
 		$orderby = isset( $_GET['orderby'] ) ? sanitize_key( wp_unslash( (string) $_GET['orderby'] ) ) : 'clicks';
+		$order   = isset( $_GET['order'] ) ? sanitize_key( wp_unslash( (string) $_GET['order'] ) ) : 'desc';
+		$order   = in_array( $order, array( 'asc', 'desc' ), true ) ? $order : 'desc';
 		// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
 		$rows = $this->events->byLink( $this->range, false, $postId > 0 ? $postId : null, $orderby, 500 );
+
+		// EventRepository::sortRows() always sorts descending (ascending only for
+		// the internal "ctr_asc" key, which this screen never passes), so a
+		// simple reverse is what "asc" means for every sortable column here.
+		if ( 'asc' === $order ) {
+			$rows = array_reverse( $rows );
+		}
 
 		if ( '' !== $search ) {
 			$needle = mb_strtolower( $search );

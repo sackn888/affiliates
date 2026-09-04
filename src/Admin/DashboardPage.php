@@ -137,7 +137,7 @@ final class DashboardPage {
 		echo '<th>' . esc_html__( 'ラベル', 'rakuten-link-tracker' ) . '</th>';
 		echo '<th>' . esc_html__( '記事', 'rakuten-link-tracker' ) . '</th>';
 		echo '<th>' . esc_html__( 'クリック', 'rakuten-link-tracker' ) . '</th>';
-		echo '<th>' . esc_html__( 'CTR', 'rakuten-link-tracker' ) . '</th>';
+		echo '<th>' . esc_html__( 'CTR（記事PV比）', 'rakuten-link-tracker' ) . '</th>';
 		echo '</tr></thead><tbody>';
 
 		if ( array() === $links ) {
@@ -156,6 +156,7 @@ final class DashboardPage {
 		}
 
 		echo '</tbody></table>';
+		echo '<p class="description">' . esc_html__( 'CTR（記事PV比）は、そのリンクのクリック数を掲載記事全体のPVで割った値です。1つの記事に複数のリンクがある場合、それらは同じ分母（記事のPV）を共有します。', 'rakuten-link-tracker' ) . '</p>';
 	}
 
 	/**

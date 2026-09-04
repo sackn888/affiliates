@@ -15,6 +15,11 @@ final class CronTest extends WP_UnitTestCase {
 		Cron::unschedule();
 	}
 
+	public function tear_down(): void {
+		Cron::unschedule();
+		parent::tear_down();
+	}
+
 	public function test_schedule_registers_a_daily_event(): void {
 		Cron::schedule();
 

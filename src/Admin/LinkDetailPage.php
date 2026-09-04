@@ -56,6 +56,7 @@ final class LinkDetailPage {
 		$table->search_box( __( 'リンクを検索', 'rakuten-link-tracker' ), 'rlt-link-search' );
 		$table->display();
 		echo '</form>';
+		echo '<p class="description">' . esc_html__( 'CTR（記事PV比）は、このリンクのクリック数を掲載記事全体のPVで割った値です。1つの記事に複数のリンクがある場合、それらは同じ分母（記事のPV）を共有します。', 'rakuten-link-tracker' ) . '</p>';
 		echo '</div>';
 	}
 
@@ -211,7 +212,11 @@ final class LinkDetailPage {
 			$rawScheme = strtolower( (string) parse_url( wp_unslash( $raw ), PHP_URL_SCHEME ) );
 			$url       = esc_url_raw( wp_unslash( $raw ), array( 'http', 'https' ) );
 
-			if ( '' !== $url && in_array( $rawScheme, array( 'http', 'https' ), true ) ) {
+			// Match StatsController::updateLink()'s length cap so the two entry
+			// points that write the same column agree. There is no JSON error
+			// channel here, so an over-length value is simply left unset --
+			// the stored value stays untouched, exactly as for a bad scheme.
+			if ( strlen( $raw ) <= 2000 && '' !== $url && in_array( $rawScheme, array( 'http', 'https' ), true ) ) {
 				$fields['target_url'] = $url;
 			}
 		}
