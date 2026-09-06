@@ -172,7 +172,7 @@ PHP;
 		);
 	}
 
-	public function test_check_for_update_adds_nothing_when_remote_equals_current(): void {
+	public function test_check_for_update_adds_nothing_to_response_when_remote_equals_current(): void {
 		$this->stubHttp( $this->realisticHeader( Plugin::VERSION ) );
 
 		$updater  = new Updater( 'octocat/rakuten-link-tracker' );
@@ -184,7 +184,30 @@ PHP;
 		$this->assertFalse( isset( $result->response[ $basename ] ) );
 	}
 
-	public function test_check_for_update_adds_nothing_when_remote_is_older(): void {
+	/**
+	 * Defect: WordPress only offers the auto-update toggle for a plugin that
+	 * appears in either $transient->response or $transient->no_update. A
+	 * plugin that is already current -- the common case -- was previously
+	 * left out of both, so the toggle never appeared. See the comment in
+	 * Updater::checkForUpdate() for the exact core code path.
+	 */
+	public function test_check_for_update_adds_a_no_update_entry_when_remote_equals_current(): void {
+		$this->stubHttp( $this->realisticHeader( Plugin::VERSION ) );
+
+		$updater  = new Updater( 'octocat/rakuten-link-tracker' );
+		$basename = plugin_basename( RLT_PLUGIN_FILE );
+
+		$transient = new \stdClass();
+		$result    = $updater->checkForUpdate( $transient );
+
+		$this->assertTrue( isset( $result->no_update[ $basename ] ) );
+		$entry = $result->no_update[ $basename ];
+		$this->assertSame( Plugin::VERSION, $entry->new_version );
+		$this->assertSame( $basename, $entry->plugin );
+		$this->assertSame( dirname( $basename ), $entry->slug );
+	}
+
+	public function test_check_for_update_adds_nothing_to_response_when_remote_is_older(): void {
 		$this->stubHttp( $this->realisticHeader( '0.0.1' ) );
 
 		$updater  = new Updater( 'octocat/rakuten-link-tracker' );
@@ -196,7 +219,43 @@ PHP;
 		$this->assertFalse( isset( $result->response[ $basename ] ) );
 	}
 
-	public function test_check_for_update_leaves_other_plugins_entries_untouched(): void {
+	public function test_check_for_update_adds_a_no_update_entry_when_remote_is_older(): void {
+		$this->stubHttp( $this->realisticHeader( '0.0.1' ) );
+
+		$updater  = new Updater( 'octocat/rakuten-link-tracker' );
+		$basename = plugin_basename( RLT_PLUGIN_FILE );
+
+		$transient = new \stdClass();
+		$result    = $updater->checkForUpdate( $transient );
+
+		$this->assertTrue( isset( $result->no_update[ $basename ] ) );
+	}
+
+	public function test_check_for_update_adds_neither_entry_when_the_remote_fetch_fails(): void {
+		$this->stubHttp( '', 500 );
+
+		$updater  = new Updater( 'octocat/rakuten-link-tracker' );
+		$basename = plugin_basename( RLT_PLUGIN_FILE );
+
+		$transient = new \stdClass();
+		$result    = $updater->checkForUpdate( $transient );
+
+		$this->assertFalse( isset( $result->response[ $basename ] ) );
+		$this->assertFalse( isset( $result->no_update[ $basename ] ) );
+	}
+
+	public function test_check_for_update_adds_neither_entry_while_unconfigured(): void {
+		$updater  = new Updater( 'OWNER/rakuten-link-tracker' );
+		$basename = plugin_basename( RLT_PLUGIN_FILE );
+
+		$transient = new \stdClass();
+		$result    = $updater->checkForUpdate( $transient );
+
+		$this->assertFalse( isset( $result->response[ $basename ] ) );
+		$this->assertFalse( isset( $result->no_update[ $basename ] ) );
+	}
+
+	public function test_check_for_update_leaves_other_plugins_response_entries_untouched(): void {
 		$this->stubHttp( $this->realisticHeader( '999.0.0' ) );
 
 		$updater = new Updater( 'octocat/rakuten-link-tracker' );
@@ -210,6 +269,23 @@ PHP;
 
 		$this->assertSame( $other, $result->response['other-plugin/other-plugin.php'] );
 		$this->assertTrue( isset( $result->response[ plugin_basename( RLT_PLUGIN_FILE ) ] ) );
+	}
+
+	public function test_check_for_update_leaves_other_plugins_no_update_entries_untouched(): void {
+		$this->stubHttp( $this->realisticHeader( Plugin::VERSION ) );
+
+		$updater  = new Updater( 'octocat/rakuten-link-tracker' );
+		$basename = plugin_basename( RLT_PLUGIN_FILE );
+
+		$transient = new \stdClass();
+		$other     = new \stdClass();
+		$other->new_version = '5.0.0';
+		$transient->no_update = array( 'other-plugin/other-plugin.php' => $other );
+
+		$result = $updater->checkForUpdate( $transient );
+
+		$this->assertSame( $other, $result->no_update['other-plugin/other-plugin.php'] );
+		$this->assertTrue( isset( $result->no_update[ $basename ] ) );
 	}
 
 	// -- fixSourceDir() ----------------------------------------------------

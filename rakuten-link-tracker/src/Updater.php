@@ -130,11 +130,42 @@ final class Updater {
 
 		$remote = $this->remoteVersion();
 
-		if ( null === $remote || version_compare( $remote, Plugin::VERSION, '<=' ) ) {
+		if ( null === $remote ) {
 			return $transient;
 		}
 
 		$basename = plugin_basename( RLT_PLUGIN_FILE );
+
+		if ( version_compare( $remote, Plugin::VERSION, '<=' ) ) {
+			// WordPress only shows the auto-update toggle for a plugin that it
+			// considers "update-supported" -- and it only sets that flag when
+			// the plugin appears in *either* $transient->response (an update
+			// is available) or $transient->no_update (the plugin was checked
+			// and found to be current). See
+			// wp-admin/includes/class-wp-plugins-list-table.php, prepare_items():
+			// `update-supported` is forced true inside the isset($response[...])
+			// and isset($no_update[...]) branches, and left false otherwise;
+			// the toggle itself is later gated on that flag. Almost all of the
+			// time this plugin is already up to date, so if nothing were ever
+			// written to $no_update it would never appear in either array and
+			// the toggle would never render -- which is exactly the bug being
+			// fixed here. Do not remove this as "dead code": it has no
+			// visible effect on updating, only on whether the toggle exists.
+			$item              = new \stdClass();
+			$item->slug        = dirname( $basename );
+			$item->plugin      = $basename;
+			$item->new_version = Plugin::VERSION;
+			$item->url         = sprintf( 'https://github.com/%s', $this->repo );
+			$item->package     = sprintf( 'https://github.com/%s/archive/refs/heads/%s.zip', $this->repo, $this->branch );
+
+			if ( ! isset( $transient->no_update ) || ! is_array( $transient->no_update ) ) {
+				$transient->no_update = array();
+			}
+
+			$transient->no_update[ $basename ] = $item;
+
+			return $transient;
+		}
 
 		$item              = new \stdClass();
 		$item->slug        = dirname( $basename );
