@@ -248,6 +248,21 @@ final class LinkRepository {
 	}
 
 	/**
+	 * One arbitrary existing link, for the diagnostics self-test to record a
+	 * click against. Prefers an active link, but falls back to an archived
+	 * one so the self-test still proves the write path works on a site where
+	 * every link has been archived.
+	 */
+	public function any(): ?array {
+		$row = $this->db->get_row(
+			'SELECT * FROM ' . Installer::linksTable() . ' ORDER BY status DESC, id ASC LIMIT 1',
+			ARRAY_A
+		);
+
+		return $row ? $this->hydrate( $row ) : null;
+	}
+
+	/**
 	 * @return int[]
 	 */
 	public function postIdsWithLinks(): array {

@@ -71,3 +71,15 @@
 	width: 0;
 	transition: width 0.2s ease;
 }
+
+.rlt-diagnostics .rlt-ok {
+	color: #008a20;
+}
+
+.rlt-diagnostics .rlt-warn {
+	color: #d63638;
+}
+
+.rlt-diagnostics .rlt-bot-row {
+	background: #fcf0f1;
+}

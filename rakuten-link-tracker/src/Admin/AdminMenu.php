@@ -15,12 +15,14 @@ final class AdminMenu {
 	public const SLUG          = 'rakuten-link-tracker';
 	public const SLUG_LINKS    = 'rlt-links';
 	public const SLUG_POSTS    = 'rlt-posts';
-	public const SLUG_SETTINGS = 'rlt-settings';
+	public const SLUG_SETTINGS    = 'rlt-settings';
+	public const SLUG_DIAGNOSTICS = 'rlt-diagnostics';
 
 	private DashboardPage $dashboardPage;
 	private LinkDetailPage $linkDetailPage;
 	private PostsReportPage $postsReportPage;
 	private SettingsPage $settingsPage;
+	private DiagnosticsPage $diagnosticsPage;
 	private BulkConverter $bulkConverter;
 
 	public function __construct() {
@@ -39,6 +41,7 @@ final class AdminMenu {
 		$this->linkDetailPage  = new LinkDetailPage();
 		$this->postsReportPage = new PostsReportPage();
 		$this->settingsPage    = new SettingsPage();
+		$this->diagnosticsPage = new DiagnosticsPage();
 		$this->bulkConverter   = new BulkConverter();
 	}
 
@@ -49,6 +52,7 @@ final class AdminMenu {
 
 		$this->linkDetailPage->register();
 		$this->settingsPage->register();
+		$this->diagnosticsPage->register();
 		$this->bulkConverter->register();
 	}
 
@@ -97,6 +101,15 @@ final class AdminMenu {
 			'manage_options',
 			self::SLUG_SETTINGS,
 			array( $this->settingsPage, 'render' )
+		);
+
+		add_submenu_page(
+			self::SLUG,
+			__( '診断', 'rakuten-link-tracker' ),
+			__( '診断', 'rakuten-link-tracker' ),
+			'manage_options',
+			self::SLUG_DIAGNOSTICS,
+			array( $this->diagnosticsPage, 'render' )
 		);
 	}
 

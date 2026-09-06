@@ -65,9 +65,10 @@ final class RedirectHandler {
 	 * The `rewrite_rules` option key that a given prefix's rule is stored
 	 * under. Shared between addRewriteRule() (which builds it) and
 	 * maybeRepairRewriteRules() (which looks it up), so the two can never
-	 * drift apart.
+	 * drift apart. Also read by DiagnosticsPage, which needs to check the
+	 * cached `rewrite_rules` option for exactly the same key.
 	 */
-	private static function ruleKeyFor( string $prefix ): string {
+	public static function ruleKeyFor( string $prefix ): string {
 		return '^' . $prefix . '/([a-z0-9]{4,16})/?$';
 	}
 

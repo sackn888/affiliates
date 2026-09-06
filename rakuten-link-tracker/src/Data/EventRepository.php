@@ -431,6 +431,86 @@ final class EventRepository {
 	}
 
 	/**
+	 * The most recent click rows, newest first, bots included and marked --
+	 * used by the diagnostics screen, where a bot row hidden in the normal
+	 * dashboard is often the actual explanation for "nothing is recorded".
+	 * visitor_hash is deliberately never selected.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function recentClicks( int $limit ): array {
+		$clicks = Installer::clicksTable();
+		$links  = Installer::linksTable();
+
+		$rows = $this->db->get_results(
+			$this->db->prepare(
+				'SELECT c.clicked_at, l.code, l.label, c.device, c.is_bot, c.referer
+				 FROM ' . $clicks . ' c
+				 LEFT JOIN ' . $links . ' l ON l.id = c.link_id
+				 ORDER BY c.clicked_at DESC, c.id DESC
+				 LIMIT %d',
+				max( 1, $limit )
+			),
+			ARRAY_A
+		) ?: array();
+
+		return array_map(
+			static function ( array $row ): array {
+				return array(
+					'clicked_at' => (string) $row['clicked_at'],
+					'code'       => (string) ( $row['code'] ?? '' ),
+					'label'      => (string) ( $row['label'] ?? '' ),
+					'device'     => DeviceDetector::label( (int) $row['device'] ),
+					'is_bot'     => (int) $row['is_bot'],
+					'referer'    => (string) $row['referer'],
+				);
+			},
+			$rows
+		);
+	}
+
+	/**
+	 * The most recent view rows, newest first, bots included and marked.
+	 * visitor_hash is deliberately never selected.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function recentViews( int $limit ): array {
+		$rows = $this->db->get_results(
+			$this->db->prepare(
+				'SELECT viewed_at, post_id, device, is_bot, referer
+				 FROM ' . Installer::viewsTable() . '
+				 ORDER BY viewed_at DESC, id DESC
+				 LIMIT %d',
+				max( 1, $limit )
+			),
+			ARRAY_A
+		) ?: array();
+
+		return array_map(
+			static function ( array $row ): array {
+				return array(
+					'viewed_at' => (string) $row['viewed_at'],
+					'post_id'   => (int) $row['post_id'],
+					'device'    => DeviceDetector::label( (int) $row['device'] ),
+					'is_bot'    => (int) $row['is_bot'],
+					'referer'   => (string) $row['referer'],
+				);
+			},
+			$rows
+		);
+	}
+
+	/**
+	 * Whether any click has ever been recorded, bots included. Distinguishes
+	 * "genuinely zero rows" from "zero in the current window" for the
+	 * diagnostics screen.
+	 */
+	public function hasAnyClickEver(): bool {
+		return (bool) $this->db->get_var( 'SELECT 1 FROM ' . Installer::clicksTable() . ' LIMIT 1' );
+	}
+
+	/**
 	 * Delete raw log rows older than the retention window.
 	 *
 	 * @param int $days 0 keeps everything.

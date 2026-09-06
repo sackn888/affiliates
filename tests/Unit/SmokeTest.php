@@ -8,7 +8,7 @@ use RLT\Plugin;
 final class SmokeTest extends TestCase {
 
 	public function test_version_is_defined(): void {
-		$this->assertSame( '1.1.1', Plugin::VERSION );
+		$this->assertSame( '1.2.0', Plugin::VERSION );
 	}
 
 	public function test_plugin_header_version_matches_plugin_version_constant(): void {
