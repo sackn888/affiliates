@@ -60,6 +60,29 @@
 - **エックスサーバー / ConoHa WING などのサーバー側キャッシュ（LiteSpeed Cache 相当）**: 管理画面のキャッシュ除外設定に `/go/*` を追加
 - **Nginx の fastcgi_cache**: `location ^~ /go/ { set $skip_cache 1; }` を追加
 
+## GA4クリック計測用の `data-*` 属性
+
+短縮URL（`/go/{code}`）のアンカータグには、GA4計測タグ側が読み取るための `data-*` 属性が出力時に自動で付与されます。`href` / `target` / `rel` など既存の属性は一切変更しません。
+
+```html
+<a href="https://example.com/go/5fqm9k" target="_blank" rel="noopener noreferrer"
+   data-ga4-click="affiliate"
+   data-ga4-code="5fqm9k"
+   data-ga4-domain="travel.rakuten.co.jp"
+   data-ga4-label="ホテルグレイスリー福岡">
+```
+
+| 属性 | 内容 |
+|---|---|
+| `data-ga4-click` | 固定値 `affiliate`。計測タグはこの属性の有無だけでリンクを判別する |
+| `data-ga4-code` | 短縮コード（`/go/` の後ろ、100文字以内） |
+| `data-ga4-domain` | 転送先の**ホスト名のみ**（スキーム・パスなし、100文字以内）。楽天のアフィリエイトURLは実際の転送先が `pc` クエリパラメータにURLエンコードされて入っているため、そこから抽出する。`pc` が無い・空・絶対URLでない場合は、URL自体のホスト名にフォールバックする |
+| `data-ga4-label` | リンクのラベル（文字数で100文字に切り詰め。マルチバイト文字の途中では切らない） |
+
+**このプラグインは属性を出力するだけで、`gtag()` の呼び出しやイベント送信は一切行いません。** GA4の知識（イベント名・パラメータ設計）は別途用意するGA4計測タグ側に閉じ込める設計です。詳細は `docs/AFFILIATE_CLICK_SPEC.md` を参照してください。
+
+属性は記事本文（`the_content`）の出力時に付与されます。**ウィジェットやブロックテンプレート領域など、`the_content` を経由しない箇所に短縮URLを出力している場合はこの属性は付与されません。**
+
 ## REST API
 
 ベースURL: `https://example.com/wp-json/rlt/v1`
@@ -132,6 +155,11 @@ npx @wordpress/env run tests-cli --env-cwd=wp-content/rlt-dev -- vendor/bin/phpu
 プラグインを**削除**すると、まず全記事の本文が元の楽天URLに復元され、そのあとテーブルとオプションが削除されます。この順序のおかげでリンク切れは残りません（無効化だけでは本文はいっさい変更されません）。
 
 ## 変更履歴
+
+### 1.1.0
+
+- GA4でアフィリエイトリンクのクリックを計測できるように、短縮URLのアンカータグに `data-ga4-click` / `data-ga4-code` / `data-ga4-domain` / `data-ga4-label` 属性を出力する機能を追加。イベント送信自体は行わず、別途用意するGA4計測タグが読み取る前提（詳細は `docs/AFFILIATE_CLICK_SPEC.md`）
+- 記事本文中のリンクとショートコードが展開したリンクの両方が対象。ウィジェット・ブロックテンプレート領域など `the_content` を経由しない箇所は未対応
 
 ### 1.0.2
 

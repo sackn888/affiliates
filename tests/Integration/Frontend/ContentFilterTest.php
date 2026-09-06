@@ -112,4 +112,69 @@ final class ContentFilterTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'src="' . self::AFFILIATE . '"', $html );
 		$this->assertStringContainsString( Settings::shortBase(), $html );
 	}
+
+	public function test_a_shortcode_produced_link_is_decorated_with_ga4_attributes(): void {
+		$postId = $this->createPostWithShortcode( '[rlt_test_blogcard url="' . self::AFFILIATE . '"]' );
+		( new PostSync() )->syncPost( $postId );
+
+		$html = $this->renderTheContent( $postId );
+
+		$this->assertStringContainsString( 'data-ga4-click="affiliate"', $html );
+		$this->assertMatchesRegularExpression( '/data-ga4-code="[a-z0-9]+"/', $html );
+		$this->assertStringContainsString( 'data-ga4-domain="hb.afl.rakuten.co.jp"', $html );
+	}
+
+	public function test_a_link_stored_directly_in_post_content_is_decorated(): void {
+		// Simulate what PostSync itself already does on a normal save: the
+		// affiliate URL is rewritten to a short URL and persisted, with no
+		// shortcode involved at all.
+		$postId = self::factory()->post->create(
+			array(
+				'post_content' => '<p><a href="' . self::AFFILIATE . '">ホテル</a></p>',
+				'post_status'  => 'publish',
+			)
+		);
+		( new PostSync() )->syncPost( $postId );
+
+		$html = $this->renderTheContent( $postId );
+
+		$this->assertStringContainsString( 'data-ga4-click="affiliate"', $html );
+		$this->assertStringNotContainsString( self::AFFILIATE, $html );
+	}
+
+	public function test_ga4_decoration_is_idempotent_across_repeated_renders(): void {
+		$postId = $this->createPostWithShortcode( '[rlt_test_blogcard url="' . self::AFFILIATE . '"]' );
+		( new PostSync() )->syncPost( $postId );
+
+		$first  = $this->renderTheContent( $postId );
+		$second = $this->renderTheContent( $postId );
+
+		$this->assertSame( $first, $second );
+		$this->assertSame( 1, substr_count( $first, 'data-ga4-click="affiliate"' ) );
+	}
+
+	public function test_a_link_under_an_older_prefix_is_still_decorated(): void {
+		$postId = self::factory()->post->create(
+			array(
+				'post_content' => '<p><a href="' . self::AFFILIATE . '">ホテル</a></p>',
+				'post_status'  => 'publish',
+			)
+		);
+		( new PostSync() )->syncPost( $postId );
+
+		$post   = get_post( $postId );
+		$oldUrl = Settings::shortBase();
+
+		// Switch the prefix, mirroring an admin changing the setting after
+		// this post was already published: the post's stored content still
+		// holds a short URL built with the old prefix.
+		Settings::update( array( 'prefix' => 'r' ) );
+
+		$this->assertNotSame( $oldUrl, Settings::shortBase() );
+		$this->assertStringContainsString( '/go/', (string) $post->post_content );
+
+		$html = $this->renderTheContent( $postId );
+
+		$this->assertStringContainsString( 'data-ga4-click="affiliate"', $html );
+	}
 }

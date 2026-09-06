@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Rakuten Link Tracker
  * Description:       楽天アフィリエイトURLを短縮URLに置き換え、クリックとPVを計測します。
- * Version:           1.0.2
+ * Version:           1.1.0
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            yusaku
