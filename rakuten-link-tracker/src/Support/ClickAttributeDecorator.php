@@ -28,8 +28,11 @@ final class ClickAttributeDecorator {
 	private const MAX_ATTR_CHARS = 100;
 
 	/**
-	 * @param array<string, array{code: string, domain: string, label: string}> $shortUrls
+	 * @param array<string, array{code: string, domain: string, label: string, target_url?: string}> $shortUrls
 	 *        Short URL => the raw (untruncated, unescaped) values to render.
+	 *        `target_url`, when present, is the original affiliate URL; it is
+	 *        used only to derive a distinguishing id to append to the label
+	 *        (see decorateTag()) and is never itself rendered.
 	 */
 	public function decorate( string $html, array $shortUrls ): string {
 		if ( array() === $shortUrls || '' === $html ) {
@@ -59,7 +62,7 @@ final class ClickAttributeDecorator {
 	}
 
 	/**
-	 * @param array<string, array{code: string, domain: string, label: string}> $shortUrls
+	 * @param array<string, array{code: string, domain: string, label: string, target_url?: string}> $shortUrls
 	 */
 	private function decorateTag( string $tag, array $shortUrls ): string {
 		// Idempotent: an anchor already carrying data-ga4-click (e.g. from a
@@ -77,11 +80,14 @@ final class ClickAttributeDecorator {
 
 		$data = $shortUrls[ $href ];
 
+		$id    = DestinationId::resolve( $data['target_url'] ?? '' );
+		$label = $this->labelWithId( $data['label'], $id );
+
 		$attributes = sprintf(
 			' data-ga4-click="affiliate" data-ga4-code="%s" data-ga4-domain="%s" data-ga4-label="%s"',
 			$this->attr( $data['code'] ),
 			$this->attr( $data['domain'] ),
-			$this->attr( $data['label'] )
+			$this->escape( $this->truncateLabel( $label, $id ) )
 		);
 
 		// Insert just before the closing ">" (or "/>") so every existing
@@ -127,15 +133,68 @@ final class ClickAttributeDecorator {
 	 * output.
 	 */
 	private function attr( string $value ): string {
-		return htmlspecialchars( $this->truncate( $value ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		return $this->escape( $this->truncate( $value, self::MAX_ATTR_CHARS ) );
 	}
 
-	private function truncate( string $value ): string {
+	private function escape( string $value ): string {
+		return htmlspecialchars( $value, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+	}
+
+	/**
+	 * Appends " (id)" to the label when an id was derived from the
+	 * destination URL, unless the label already ends with that exact suffix
+	 * -- keeps the decorator idempotent without needing to know whether this
+	 * is the first pass or a repeat over already-decorated content.
+	 */
+	private function labelWithId( string $label, ?string $id ): string {
+		if ( null === $id ) {
+			return $label;
+		}
+
+		$suffix = ' (' . $id . ')';
+
+		return str_ends_with( $label, $suffix ) ? $label : $label . $suffix;
+	}
+
+	/**
+	 * Truncates a label to MAX_ATTR_CHARS *characters* while keeping the
+	 * " (id)" suffix intact -- an id that got cut off would defeat the whole
+	 * point of appending it, so the text part is shortened instead (spec
+	 * §3.1 still caps the whole attribute at 100 characters).
+	 *
+	 * $suffix is always plain ASCII (a space, parentheses, and digits), so
+	 * strlen() on it is safe to use as both a byte and a character count.
+	 */
+	private function truncateLabel( string $label, ?string $id ): string {
+		if ( null === $id ) {
+			return $this->truncate( $label, self::MAX_ATTR_CHARS );
+		}
+
+		$suffix = ' (' . $id . ')';
+
+		if ( ! str_ends_with( $label, $suffix ) ) {
+			// Defensive: labelWithId() always produces this suffix when $id
+			// is non-null, but guard against a caller supplying a label that
+			// doesn't actually end with it.
+			return $this->truncate( $label, self::MAX_ATTR_CHARS );
+		}
+
+		$textPart      = substr( $label, 0, strlen( $label ) - strlen( $suffix ) );
+		$maxTextChars  = max( 0, self::MAX_ATTR_CHARS - strlen( $suffix ) );
+
+		return $this->truncate( $textPart, $maxTextChars ) . $suffix;
+	}
+
+	private function truncate( string $value, int $maxChars ): string {
 		if ( '' === $value ) {
 			return $value;
 		}
 
-		$pattern = '/^.{0,' . self::MAX_ATTR_CHARS . '}/su';
+		if ( $maxChars <= 0 ) {
+			return '';
+		}
+
+		$pattern = '/^.{0,' . $maxChars . '}/su';
 
 		if ( 1 === preg_match( $pattern, $value, $m ) ) {
 			return $m[0];
@@ -144,11 +203,11 @@ final class ClickAttributeDecorator {
 		// preg_match() with /u returns false when $value is not valid UTF-8.
 		// Fall back to a byte-safe cut so a malformed label degrades instead
 		// of breaking the render.
-		if ( strlen( $value ) <= self::MAX_ATTR_CHARS ) {
+		if ( strlen( $value ) <= $maxChars ) {
 			return $value;
 		}
 
-		$cut = substr( $value, 0, self::MAX_ATTR_CHARS );
+		$cut = substr( $value, 0, $maxChars );
 
 		return (string) preg_replace(
 			'/(?:[\xC0-\xDF]|[\xE0-\xEF][\x80-\xBF]?|[\xF0-\xF7][\x80-\xBF]{0,2})$/',

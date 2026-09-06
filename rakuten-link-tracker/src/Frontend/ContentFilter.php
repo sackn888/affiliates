@@ -48,7 +48,7 @@ final class ContentFilter {
 	 * the full content), and rebuilding it from the database on every call would
 	 * be wasted work.
 	 *
-	 * @var array<int, array{rewrite: array<string, string>, attrs: array<string, array{code: string, domain: string, label: string}>}>
+	 * @var array<int, array{rewrite: array<string, string>, attrs: array<string, array{code: string, domain: string, label: string, target_url: string}>}>
 	 */
 	private array $mapsByPost = array();
 
@@ -86,7 +86,7 @@ final class ContentFilter {
 	}
 
 	/**
-	 * @return array{rewrite: array<string, string>, attrs: array<string, array{code: string, domain: string, label: string}>}
+	 * @return array{rewrite: array<string, string>, attrs: array<string, array{code: string, domain: string, label: string, target_url: string}>}
 	 */
 	private function mapFor( int $postId ): array {
 		if ( isset( $this->mapsByPost[ $postId ] ) ) {
@@ -106,9 +106,10 @@ final class ContentFilter {
 			$rewrite[ $link['target_url'] ] = Settings::shortUrl( $link['code'] );
 
 			$data = array(
-				'code'   => $link['code'],
-				'domain' => DestinationHost::resolve( $link['target_url'] ),
-				'label'  => $link['label'],
+				'code'       => $link['code'],
+				'domain'     => DestinationHost::resolve( $link['target_url'] ),
+				'label'      => $link['label'],
+				'target_url' => $link['target_url'],
 			);
 
 			foreach ( $prefixes as $prefix ) {

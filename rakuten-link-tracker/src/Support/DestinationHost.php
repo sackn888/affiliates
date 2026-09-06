@@ -30,10 +30,34 @@ final class DestinationHost {
 	public static function resolve( string $targetUrl ): string {
 		$ownHost = self::hostOf( $targetUrl );
 
+		$pc = self::destinationUrl( $targetUrl );
+
+		if ( '' === $pc ) {
+			return $ownHost;
+		}
+
+		$pcHost = self::hostOf( $pc );
+
+		return '' !== $pcHost ? $pcHost : $ownHost;
+	}
+
+	/**
+	 * The decoded, validated destination URL carried in the `pc` query
+	 * parameter of an affiliate URL, e.g. "https://travel.rakuten.co.jp/HOTEL/9611/9611.html".
+	 *
+	 * Shared with DestinationId, which needs the same "is `pc` actually a
+	 * usable absolute http(s) URL" logic to get at the destination's path
+	 * rather than its host. Returns '' when `pc` is missing, blank, relative,
+	 * or uses a non-http(s) scheme -- never throws, since this runs on every
+	 * content render.
+	 *
+	 * @param string $targetUrl The affiliate URL as stored in target_url.
+	 */
+	public static function destinationUrl( string $targetUrl ): string {
 		$query = (string) parse_url( $targetUrl, PHP_URL_QUERY );
 
 		if ( '' === $query ) {
-			return $ownHost;
+			return '';
 		}
 
 		// parse_str() url-decodes values for us, so $params['pc'] is already
@@ -43,7 +67,7 @@ final class DestinationHost {
 		$pc = isset( $params['pc'] ) && is_string( $params['pc'] ) ? trim( $params['pc'] ) : '';
 
 		if ( '' === $pc ) {
-			return $ownHost;
+			return '';
 		}
 
 		// Only trust `pc` when it is itself an absolute http(s) URL. A
@@ -53,12 +77,10 @@ final class DestinationHost {
 		$scheme = strtolower( (string) parse_url( $pc, PHP_URL_SCHEME ) );
 
 		if ( ! in_array( $scheme, array( 'http', 'https' ), true ) ) {
-			return $ownHost;
+			return '';
 		}
 
-		$pcHost = self::hostOf( $pc );
-
-		return '' !== $pcHost ? $pcHost : $ownHost;
+		return $pc;
 	}
 
 	private static function hostOf( string $url ): string {

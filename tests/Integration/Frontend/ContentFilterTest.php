@@ -153,6 +153,33 @@ final class ContentFilterTest extends WP_UnitTestCase {
 		$this->assertSame( 1, substr_count( $first, 'data-ga4-click="affiliate"' ) );
 	}
 
+	public function test_two_links_with_identical_anchor_text_get_different_ga4_labels(): void {
+		// Regression test for the reported bug: every button in the article
+		// reads the same 「楽天トラベルで見る」, so the anchor-text-derived label
+		// alone cannot distinguish the two hotels. The hotel id embedded in
+		// each affiliate URL's `pc` parameter must make the labels differ.
+		$urlA = 'https://hb.afl.rakuten.co.jp/hgc/aaa/_RTLink1?pc=' . rawurlencode( 'https://travel.rakuten.co.jp/HOTEL/1111/1111.html' );
+		$urlB = 'https://hb.afl.rakuten.co.jp/hgc/bbb/_RTLink2?pc=' . rawurlencode( 'https://travel.rakuten.co.jp/HOTEL/2222/2222.html' );
+
+		$postId = self::factory()->post->create(
+			array(
+				'post_content' => '<p><a href="' . $urlA . '">楽天トラベルで見る</a></p>'
+					. '<p><a href="' . $urlB . '">楽天トラベルで見る</a></p>',
+				'post_status'  => 'publish',
+			)
+		);
+		( new PostSync() )->syncPost( $postId );
+
+		$html = $this->renderTheContent( $postId );
+
+		$this->assertMatchesRegularExpression( '/data-ga4-label="[^"]*\(1111\)"/', $html );
+		$this->assertMatchesRegularExpression( '/data-ga4-label="[^"]*\(2222\)"/', $html );
+
+		preg_match_all( '/data-ga4-label="([^"]*)"/', $html, $labels );
+		$this->assertCount( 2, $labels[1] );
+		$this->assertNotSame( $labels[1][0], $labels[1][1] );
+	}
+
 	public function test_a_link_under_an_older_prefix_is_still_decorated(): void {
 		$postId = self::factory()->post->create(
 			array(
