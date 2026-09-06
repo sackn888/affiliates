@@ -40,9 +40,9 @@ final class ClickAttributeDecorator {
 		}
 
 		$result = preg_replace_callback(
-			'/<a\b[^>]*>/i',
+			'/<a\b[^>]*\/>|<a\b[^>]*>.*?<\/a\s*>/is',
 			function ( array $m ) use ( $shortUrls ): string {
-				return $this->decorateTag( $m[0], $shortUrls );
+				return $this->decorateAnchor( $m[0], $shortUrls );
 			},
 			$html
 		);
@@ -62,9 +62,32 @@ final class ClickAttributeDecorator {
 	}
 
 	/**
+	 * Splits a fully-matched anchor (either `<a ... />` or
+	 * `<a ...>inner</a>`) into its opening tag and inner markup, decorates
+	 * only the opening tag, and reassembles the result -- so the inner
+	 * markup and the closing tag are always passed through byte-identical.
+	 *
 	 * @param array<string, array{code: string, domain: string, label: string, target_url?: string}> $shortUrls
 	 */
-	private function decorateTag( string $tag, array $shortUrls ): string {
+	private function decorateAnchor( string $anchor, array $shortUrls ): string {
+		if ( preg_match( '/^(<a\b[^>]*>)(.*)(<\/a\s*>)$/is', $anchor, $m ) ) {
+			$openTag  = $m[1];
+			$inner    = $m[2];
+			$closeTag = $m[3];
+		} else {
+			// Self-closing `<a ... />`: no inner text is possible.
+			$openTag  = $anchor;
+			$inner    = '';
+			$closeTag = '';
+		}
+
+		return $this->decorateTag( $openTag, $inner, $shortUrls ) . $inner . $closeTag;
+	}
+
+	/**
+	 * @param array<string, array{code: string, domain: string, label: string, target_url?: string}> $shortUrls
+	 */
+	private function decorateTag( string $tag, string $inner, array $shortUrls ): string {
 		// Idempotent: an anchor already carrying data-ga4-click (e.g. from a
 		// previous pass over the same content within one request) is left
 		// exactly as-is rather than gaining a duplicate set of attributes.
@@ -80,8 +103,20 @@ final class ClickAttributeDecorator {
 
 		$data = $shortUrls[ $href ];
 
-		$id    = DestinationId::resolve( $data['target_url'] ?? '' );
-		$label = $this->labelWithId( $this->renderedLabel( $data ), $id );
+		// The rendered anchor's own text (or, failing that, an inner image's
+		// alt) is the preferred label source: it already reads as a human
+		// name (a hotel name), so no distinguishing id needs to be appended
+		// to it. Only the storage/destination fallbacks below may still need
+		// the id, since their text is not guaranteed to differ between links.
+		$anchorLabel = $this->anchorDerivedLabel( $inner );
+
+		if ( null !== $anchorLabel ) {
+			$label = $anchorLabel;
+			$id    = null;
+		} else {
+			$id    = DestinationId::resolve( $data['target_url'] ?? '' );
+			$label = $this->labelWithId( $this->renderedLabel( $data ), $id );
+		}
 
 		$attributes = sprintf(
 			' data-ga4-click="affiliate" data-ga4-code="%s" data-ga4-domain="%s" data-ga4-label="%s"',
@@ -98,6 +133,49 @@ final class ClickAttributeDecorator {
 		}
 
 		return substr( $tag, 0, -1 ) . $attributes . '>';
+	}
+
+	/**
+	 * The anchor's own inner text, tags stripped and entities decoded, or
+	 * failing that an inner `<img>`'s `alt`. Null when neither yields
+	 * anything usable, so the caller can fall through to the stored/
+	 * destination-derived label.
+	 *
+	 * Mirrors LinkExtractor::labelFrom()'s text-then-alt preference, since
+	 * both need the same "what would a human call this link" heuristic --
+	 * but this runs on the *rendered* anchor at output time (see class
+	 * docblock), so a blog-card shortcode's expanded markup is covered too.
+	 */
+	private function anchorDerivedLabel( string $inner ): ?string {
+		$text = $this->normalise( strip_tags( $inner ) );
+
+		if ( '' !== $text ) {
+			return $text;
+		}
+
+		if ( preg_match( '/<img\b[^>]*\balt\s*=\s*("([^"]*)"|\'([^\']*)\')/i', $inner, $m ) ) {
+			$alt  = '' !== $m[2] ? $m[2] : ( $m[3] ?? '' );
+			$alt  = $this->normalise( $alt );
+
+			if ( '' !== $alt ) {
+				return $alt;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Decode entities and collapse whitespace runs (including newlines) into
+	 * a single space, then trim -- so nested markup like
+	 * `<strong>名護<span>パークサイド</span></strong>` yields flattened,
+	 * readable text rather than tag soup or stray whitespace.
+	 */
+	private function normalise( string $text ): string {
+		$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$text = (string) preg_replace( '/\s+/u', ' ', $text );
+
+		return trim( $text );
 	}
 
 	/**
