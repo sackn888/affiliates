@@ -305,6 +305,72 @@ final class ClickAttributeDecoratorTest extends TestCase {
 		$this->assertSame( 1, substr_count( $m[1], '(9611)' ) );
 	}
 
+	/**
+	 * Exact live output from the production bug report: a blog-card
+	 * shortcode has no anchor text, so LinkExtractor stored the old
+	 * machine-generated fallback label ("blogcard: " + the affiliate
+	 * redirector's own host and path). That label is noise -- identical in
+	 * shape for every blog-card link -- and must be replaced at render time
+	 * with one derived from the destination instead.
+	 */
+	public function test_a_stored_blogcard_fallback_label_is_replaced_with_the_destination_at_render_time(): void {
+		$targetUrl = 'https://hb.afl.rakuten.co.jp/hgc/2452369c.9c4d0e37.2452369d.f06761a5/_RTLink137659'
+			. '?pc=' . rawurlencode( 'https://travel.rakuten.co.jp/HOTEL/183758/183758.html' );
+
+		$html = '<a href="' . self::SHORT . '">ホテル詳細</a>';
+
+		$result = $this->decorator->decorate(
+			$html,
+			$this->map(
+				array(
+					'label'      => 'blogcard: hb.afl.rakuten.co.jp/hgc/2452369c.9c4d0e37.2452369d.f06761a5/_RTLink137659',
+					'target_url' => $targetUrl,
+				)
+			)
+		);
+
+		$this->assertStringContainsString(
+			'data-ga4-label="travel.rakuten.co.jp/HOTEL/183758/183758.html (183758)"',
+			$result
+		);
+		$this->assertStringNotContainsString( 'blogcard', $result );
+		$this->assertStringNotContainsString( 'hb.afl.rakuten.co.jp', $result );
+	}
+
+	public function test_genuine_anchor_text_is_not_treated_as_a_machine_generated_label(): void {
+		$html = '<a href="' . self::SHORT . '">グレイスリー</a>';
+
+		$result = $this->decorator->decorate(
+			$html,
+			$this->map( array( 'label' => 'グレイスリー', 'target_url' => self::AFFILIATE_URL_HOTEL_9611 ) )
+		);
+
+		$this->assertStringContainsString( 'data-ga4-label="グレイスリー (9611)"', $result );
+	}
+
+	public function test_a_blogcard_fallback_label_falls_back_sanely_when_the_destination_cannot_be_resolved(): void {
+		// No `pc` query parameter at all, so the destination cannot be
+		// resolved -- the original (machine-generated) label must be kept
+		// rather than the attribute ending up empty.
+		$targetUrl = 'https://hb.afl.rakuten.co.jp/hgc/abc123/_RTLink1';
+		$html      = '<a href="' . self::SHORT . '">blogcard</a>';
+
+		$result = $this->decorator->decorate(
+			$html,
+			$this->map(
+				array(
+					'label'      => 'blogcard: hb.afl.rakuten.co.jp/hgc/abc123/_RTLink1',
+					'target_url' => $targetUrl,
+				)
+			)
+		);
+
+		$this->assertMatchesRegularExpression( '/data-ga4-label="([^"]*)"/u', $result );
+		preg_match( '/data-ga4-label="([^"]*)"/u', $result, $m );
+		$this->assertNotSame( '', $m[1] );
+		$this->assertStringContainsString( 'hb.afl.rakuten.co.jp', $m[1] );
+	}
+
 	public function test_a_long_japanese_label_plus_id_is_truncated_to_100_chars_and_keeps_the_id(): void {
 		$label = str_repeat( 'ホテルグレイスリー福岡博多', 20 ); // far more than 100 characters
 		$this->assertGreaterThan( 100, mb_strlen( $label, 'UTF-8' ) );

@@ -309,14 +309,29 @@ final class LinkExtractorTest extends TestCase {
 		$this->assertSame( 'https://af.rakuten.co.jp/two', $links[1]['url'] );
 	}
 
-	public function test_extract_shortcode_urls_labels_with_tag_and_host_and_path(): void {
+	public function test_extract_shortcode_urls_labels_with_the_affiliate_host_when_destination_cannot_be_resolved(): void {
+		// "pc=x" is not an absolute http(s) URL, so the destination cannot be
+		// resolved and the label must fall back to the affiliate URL itself
+		// -- but never carry the old "blogcard: " tag-name prefix.
 		$html = '[blogcard url="https://hb.afl.rakuten.co.jp/hgc/abc/?pc=x"]';
 
 		$links = $this->extractor()->extractShortcodeUrls( $html );
 
-		$this->assertSame( 'blogcard', substr( $links[0]['label'], 0, 8 ) );
+		$this->assertStringNotContainsString( 'blogcard', $links[0]['label'] );
 		$this->assertStringContainsString( 'hb.afl.rakuten.co.jp', $links[0]['label'] );
 		$this->assertStringContainsString( '/hgc/abc/', $links[0]['label'] );
+	}
+
+	public function test_extract_shortcode_urls_labels_with_the_destination_host_and_path(): void {
+		// Real blog-card shortcode from docs/AFFILIATE_CLICK_SPEC.md's bug
+		// report: the destination (a Rakuten travel page) is carried in the
+		// `pc` query parameter of the affiliate redirector URL.
+		$html = '[blogcard url="https://hb.afl.rakuten.co.jp/hgc/2452369c.9c4d0e37.2452369d.f06761a5/_RTLink137659'
+			. '?pc=https%3A%2F%2Ftravel.rakuten.co.jp%2FHOTEL%2F183758%2F183758.html"]';
+
+		$links = $this->extractor()->extractShortcodeUrls( $html );
+
+		$this->assertSame( 'travel.rakuten.co.jp/HOTEL/183758/183758.html', $links[0]['label'] );
 	}
 
 	public function test_extract_returns_nothing_for_content_that_is_only_a_shortcode(): void {

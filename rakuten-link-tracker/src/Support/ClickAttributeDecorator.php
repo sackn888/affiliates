@@ -81,7 +81,7 @@ final class ClickAttributeDecorator {
 		$data = $shortUrls[ $href ];
 
 		$id    = DestinationId::resolve( $data['target_url'] ?? '' );
-		$label = $this->labelWithId( $data['label'], $id );
+		$label = $this->labelWithId( $this->renderedLabel( $data ), $id );
 
 		$attributes = sprintf(
 			' data-ga4-click="affiliate" data-ga4-code="%s" data-ga4-domain="%s" data-ga4-label="%s"',
@@ -98,6 +98,66 @@ final class ClickAttributeDecorator {
 		}
 
 		return substr( $tag, 0, -1 ) . $attributes . '>';
+	}
+
+	/**
+	 * @param array{code: string, domain: string, label: string, target_url?: string} $data
+	 *
+	 * LinkExtractor::extractShortcodeUrls() has no anchor text to work with,
+	 * so it stored a machine-generated fallback label built from the
+	 * affiliate redirector URL's own host and path (e.g.
+	 * "hb.afl.rakuten.co.jp/hgc/2452369c.../_RTLink137659") -- identical in
+	 * shape for every blog-card link on a site, and pure noise once appended
+	 * to the label budget. That stored value can't be told apart from real
+	 * anchor text except by what it contains, so it is detected here by
+	 * checking whether the label carries the affiliate URL's own host, and
+	 * replaced with a label derived from the destination instead. This runs
+	 * at render time (spec §3.3 explicitly allows deferring attribute work to
+	 * output) so links stored before this fix improve immediately, with no
+	 * re-scan of existing content required.
+	 */
+	private function renderedLabel( array $data ): string {
+		$label     = $data['label'];
+		$targetUrl = $data['target_url'] ?? '';
+
+		if ( '' === $targetUrl || ! $this->looksMachineGenerated( $label, $targetUrl ) ) {
+			return $label;
+		}
+
+		$destination = $this->destinationLabel( $targetUrl );
+
+		return null !== $destination ? $destination : $label;
+	}
+
+	/**
+	 * True when $label contains the affiliate URL's own host -- the
+	 * signature of the fallback LinkExtractor::shortcodeLabel() falls back to
+	 * when a shortcode has no anchor text, rather than genuine anchor text a
+	 * site owner wrote.
+	 */
+	private function looksMachineGenerated( string $label, string $targetUrl ): bool {
+		$ownHost = strtolower( (string) parse_url( $targetUrl, PHP_URL_HOST ) );
+
+		return '' !== $ownHost && false !== stripos( $label, $ownHost );
+	}
+
+	/**
+	 * The destination host plus its path, e.g.
+	 * "travel.rakuten.co.jp/HOTEL/183758/183758.html" -- null when the
+	 * destination cannot be resolved, so the caller can keep the original
+	 * label rather than emit an empty one.
+	 */
+	private function destinationLabel( string $targetUrl ): ?string {
+		$destination = DestinationHost::destinationUrl( $targetUrl );
+
+		if ( '' === $destination ) {
+			return null;
+		}
+
+		$host = strtolower( (string) parse_url( $destination, PHP_URL_HOST ) );
+		$path = (string) parse_url( $destination, PHP_URL_PATH );
+
+		return '' !== $host ? $host . $path : null;
 	}
 
 	/**

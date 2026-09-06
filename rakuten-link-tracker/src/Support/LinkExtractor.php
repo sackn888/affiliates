@@ -156,8 +156,6 @@ final class LinkExtractor {
 		$found = array();
 
 		foreach ( $shortcodes as $shortcode ) {
-			$tag = $shortcode[1];
-
 			if ( ! preg_match_all( $attrPattern, $shortcode[2], $attrs, PREG_SET_ORDER ) ) {
 				continue;
 			}
@@ -183,7 +181,7 @@ final class LinkExtractor {
 
 				$found[ $url ] = array(
 					'url'   => $url,
-					'label' => $this->shortcodeLabel( $tag, $url ),
+					'label' => $this->shortcodeLabel( $url ),
 				);
 			}
 		}
@@ -193,10 +191,32 @@ final class LinkExtractor {
 
 	/**
 	 * There is no anchor text for a shortcode attribute, so the label is
-	 * built from the shortcode tag plus the URL's host and path.
+	 * built from the URL instead.
+	 *
+	 * Prefer the *destination* the affiliate URL ultimately points at (the
+	 * `pc` query parameter, resolved via DestinationHost -- the same helper
+	 * ClickAttributeDecorator uses at render time) over the affiliate
+	 * redirector URL itself: every blog-card link shares the same
+	 * affiliate host and near-identical path, so a label built from it is
+	 * identical noise across an entire article, crowding out the
+	 * destination-specific id that actually distinguishes one link from
+	 * another. When the destination cannot be resolved (no usable `pc`
+	 * parameter), fall back to the affiliate URL's own host and path so a
+	 * label is still produced.
 	 */
-	private function shortcodeLabel( string $tag, string $url ): string {
-		$text = $tag . ': ' . (string) parse_url( $url, PHP_URL_HOST ) . (string) parse_url( $url, PHP_URL_PATH );
+	private function shortcodeLabel( string $url ): string {
+		$destination = DestinationHost::destinationUrl( $url );
+
+		if ( '' !== $destination ) {
+			$host = (string) parse_url( $destination, PHP_URL_HOST );
+			$path = (string) parse_url( $destination, PHP_URL_PATH );
+
+			if ( '' !== $host ) {
+				return $this->truncate( $host . $path );
+			}
+		}
+
+		$text = (string) parse_url( $url, PHP_URL_HOST ) . (string) parse_url( $url, PHP_URL_PATH );
 
 		return $this->truncate( $text );
 	}
